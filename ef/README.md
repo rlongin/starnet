@@ -39,7 +39,7 @@ Optional overrides: `EF_STUDIO_PORT` (1024–65535) and `EF_STUDIO_DATA` (use a 
 
 The four files in `frontend/ef/` also form a **design-only preview** when served without the sidecar's launch token. This mode makes no runtime API calls and disables execution, provider checking, and API-key entry. It does not invent agents, work, spend, or history. For another path, change the HTML `<base href="/ef/">` to the public preview directory.
 
-Nexus's standalone preview path is `/previews/agent-studio/index.html`. It is for visual review only until a separate runtime has been hosted and authenticated. A browser on Nexus must not be pointed at a shared privileged loopback service. Production member access requires server-side identity checks and isolated per-member workspaces/secrets before any Experience tile is approved.
+Nexus's standalone preview path is `/previews/agent-studio`: [open the design preview](https://preview--longasto.lovable.app/previews/agent-studio). It is for visual review only until a separate runtime has been hosted and authenticated. A browser on Nexus must not be pointed at a shared privileged loopback service. Production member access requires server-side identity checks and isolated per-member workspaces/secrets before any Experience tile is approved.
 
 ## Validation
 
@@ -48,6 +48,8 @@ npm test --prefix ef
 ```
 
 The tests start the real backend in a temporary workspace and use a **local mock model provider**. They verify asset serving, blocked upstream artwork paths, token/host/origin checks, provider credential validation, successful and failed streamed runs, and persisted run history. They also exercise fragmented NDJSON events and honest failure labels. No paid provider calls are made by these tests.
+
+Hosted desktop browser check passed at 1363 px: page rendered, no horizontal overflow, task starter populated the brief, and execution/provider/key controls remained disabled in design mode. Tablet/phone visual checks remain outstanding.
 
 Manual acceptance still required: live provider response; permission prompts in browser; desktop/tablet/phone visual review; response download; stop behavior with a live provider; reload history. Hosted authentication and member isolation are not implemented.
 
