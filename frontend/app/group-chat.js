@@ -53,7 +53,7 @@ const GroupChat = (() => {
   function describe(id) {
     const a = typeof App !== 'undefined' && App.agents ? App.agents().find(x => x.id === id) : null; if (!a) return '';
     const spec = a.specialtyId && typeof Specialties !== 'undefined' && Specialties.get ? Specialties.get(a.specialtyId) : null;
-    return spec?.tagline || (a.role === 'overseer' || id === 'agent' ? 'the overseer' : a.role || '');
+    return spec?.tagline || (a.role === 'overseer' || id === 'agent' ? 'the CEO' : a.role || '');
   }
   function init() {
     if (root) return;

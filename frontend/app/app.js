@@ -1096,7 +1096,7 @@ const App = (() => {
       // "took the free desk" vs "desk placed": ensureWorkstation may ADOPT an unbound workstation instead of
       // building one, and saying "placed" for a desk that was already there is a small lie about the floor.
       const deskLine = (desk && desk.ok) ? ((desk.adopted ? 'took the free desk' : 'desk placed') + (deskRoom ? ' in ' + deskRoom : '') + '. ') : '';
-      _notify(a.name + ' summoned — ' + deskLine + 'switch to its stream to task it, or let the overseer delegate.', 'good');
+      _notify(a.name + ' summoned — ' + deskLine + 'switch to its stream to task it, or let the CEO delegate.', 'good');
     }
     // ONE loadout beat: state plainly what the class summon actually applied — the skills enabled, the effort
     // applied, and the STATION GEAR the class draws on (honest present/missing under the overseer, NOT per-agent
@@ -1679,7 +1679,7 @@ const App = (() => {
 
   // the live nameplate under the agent: NAME (from the input) + the approval-posture readout.
   function updateNameplate() {
-    const np = el('np-name'); if (np) np.textContent = ((el('in-name') && el('in-name').value.trim()) || 'OVERSEER').toUpperCase();
+    const np = el('np-name'); if (np) np.textContent = ((el('in-name') && el('in-name').value.trim()) || 'CEO').toUpperCase();
     const nm = el('np-mode'); if (nm) nm.textContent = approvalById(pickedApproval).np;
   }
 
@@ -2412,7 +2412,7 @@ const App = (() => {
     pickedPersona = Personas.resolve(pickedPersona);   // collapse any legacy id to its grounded archetype
     wrap.innerHTML = '';
     const personalityHelp = el('ov-personality-help');
-    const helpText = 'Fine-tune later in your Overseer’s settings.';
+    const helpText = 'Fine-tune later in your CEO’s settings.';
     if (personalityHelp) personalityHelp.textContent = helpText;
     let armedChip = null;   // the UNHINGED chip while it awaits its second press (house two-press confirm)
     const disarm = () => { if (personalityHelp) personalityHelp.textContent = helpText; if (armedChip) { armedChip.textContent = armedChip.dataset.name; armedChip.classList.remove('arm'); armedChip = null; } };
@@ -2621,10 +2621,10 @@ const App = (() => {
       const nameIn = el('in-name'); if (nameIn) { nameIn.readOnly = true; nameIn.tabIndex = -1; }
     } else {
       if (banner) { banner.classList.add('hidden'); banner.innerHTML = ''; }
-      if (title) title.textContent = 'Create your Overseer';
+      if (title) title.textContent = 'Create your Chief Executive Officer';
       if (sub) sub.textContent = 'One mind to run your station. Build your crew from here.';
       if (mode) mode.textContent = 'GENESIS';
-      if (wake) wake.textContent = '⏼ WAKE OVERSEER ▸';
+      if (wake) wake.textContent = '⏼ WAKE CEO ▸';
       locked.forEach(id => { const n = el(id); if (n) { n.classList.remove('field-locked'); n.removeAttribute('aria-disabled'); } });
       const nameIn = el('in-name'); if (nameIn) { nameIn.readOnly = false; nameIn.removeAttribute('tabindex'); }
     }

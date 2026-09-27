@@ -1758,7 +1758,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const isHero = (a && (a.id === 'agent' || a.role === 'orchestrator'));
     const crewCount = (access.config && typeof access.config.crewCount === 'function') ? access.config.crewCount() : present.length;
     const lastOne = crewCount <= 1;
-    const disabledReason = isHero ? 'the overseer can’t be deleted' : (lastOne ? 'the last agent can’t be deleted' : '');
+    const disabledReason = isHero ? 'the CEO can’t be deleted' : (lastOne ? 'the last agent can’t be deleted' : '');
     // one statement of the disabled reason (the visible .ag-del-why) — no duplicate tooltip echoing the same words.
     const delBtn = disabledReason
       ? '<button class="bb sm ag-del" id="ag-del-btn" disabled>✕ DELETE AGENT</button>' +
