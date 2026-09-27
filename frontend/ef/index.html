@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><base href="/ef/">
+  <meta name="color-scheme" content="dark"><title>Agent Studio · EF Ventures</title>
+  <link rel="stylesheet" href="./studio.css">
+  <script defer src="./core.js"></script><script defer src="./app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#workspace">Skip to workspace</a>
+  <aside class="rail">
+    <a class="brand" href="./index.html" aria-label="EF Ventures Agent Studio home"><span class="monogram">EF<span>✦</span></span><span>EF VENTURES<small>MEMBER WORKSPACE</small></span></a>
+    <div class="rail-label">YOUR TOOLS</div>
+    <a class="nav active" href="#workspace"><span>◈</span> Agent Studio</a>
+    <a class="nav" href="#history"><span>◷</span> Run history</a>
+    <a class="nav" href="#connection"><span>⚙</span> Connection</a>
+    <div class="rail-bottom"><div class="tiny-label">BUILD WITH INTENTION.</div><p>Turn an idea into<br>your next meaningful step.</p><a href="https://members.efventures.app/platform/os" target="_blank" rel="noopener noreferrer">Return to Nexus ↗</a></div>
+  </aside>
+  <main id="workspace">
+    <header class="topbar"><span>WORKSPACE <span class="crumb">/</span> AGENT STUDIO</span><span class="pill">PRIVATE LOCAL PREVIEW</span></header>
+    <section class="intro"><div><div class="eyebrow">EF VENTURES · BUILD TOGETHER</div><h1>Your ideas.<br><span>A little more possible.</span></h1><p>A focused space to brief an AI agent, review its work,<br class="desktop-only"> and keep your next move in sight.</p></div><div class="orb" aria-hidden="true"><div class="orbit one"></div><div class="orbit two"></div><div class="core">EF</div><span class="spark s1"></span><span class="spark s2"></span></div></section>
+    <div id="notice" role="status" aria-live="polite" class="notice">Connecting to your local workspace…</div>
+    <div class="workspace-grid">
+      <section class="panel brief"><div class="panel-heading"><div><span class="section-no">01 / BRIEF</span><h2>What are we building?</h2></div><span class="small-dot" aria-hidden="true"></span></div>
+        <div class="ideas" aria-label="Task starters"><button type="button" data-prompt="Help me turn this startup idea into a practical one-page validation plan. First ask me for the idea and intended customer.">Validate an idea ↗</button><button type="button" data-prompt="Help me draft a concise community update. First ask me for the topic, audience, and facts to include.">Draft an update ↗</button><button type="button" data-prompt="Help me create a clear project brief with deliverables and acceptance criteria. Ask me what I want to build.">Plan a project ↗</button></div>
+        <form id="task-form"><label for="agent">Agent</label><select id="agent"><option value="agent">EF Guide</option></select><label for="prompt">Your task</label><textarea id="prompt" rows="6" required placeholder="Describe the goal, who it is for, and what a useful result looks like…"></textarea>
+          <fieldset><legend>Tools for this task</legend><div class="capabilities"><label><input type="checkbox" name="capability" value="dish"> Web research</label><label><input type="checkbox" name="capability" value="cabinet"> Workspace files</label><label><input type="checkbox" name="capability" value="notebook"> Agent memory</label></div><p class="helper">Optional tools. The runtime’s permission checks still apply.</p></fieldset>
+          <div class="actions"><button id="run" class="primary" type="submit" disabled>Start task <span>↗</span></button><button id="stop" type="button" hidden>Stop task</button></div><p class="helper">Starting a task uses your selected provider. Provider charges may apply.</p>
+        </form>
+      </section>
+      <section class="panel result"><div class="panel-heading"><div><span class="section-no">02 / WORK</span><h2>Room for progress.</h2></div><span id="run-status" class="pill">READY WHEN YOU ARE</span></div><div id="empty-output" class="empty"><div class="empty-icon">✦</div><h3>A clear brief goes a long way.</h3><p>Your agent’s response will appear here.<br>Start with a goal. Refine it together.</p></div><pre id="output" hidden tabindex="0" aria-label="Agent response"></pre><div id="permissions" aria-live="polite"></div><details id="activity-box"><summary>Task activity</summary><ol id="activity"></ol></details><div class="result-actions"><button id="download" type="button" disabled>Download response ↓</button><span id="cost" class="helper">Cost appears when reported by the runtime.</span></div></section>
+    </div>
+    <section id="connection" class="panel connection"><div class="panel-heading"><div><span class="section-no">03 / CONNECTION</span><h2>Choose your intelligence.</h2></div><span id="provider-state" class="pill">NOT CHECKED</span></div><div class="connection-grid"><div><label for="provider">Provider</label><select id="provider"><option value="openrouter">OpenRouter</option><option value="ollama">Ollama · local</option></select></div><div><label for="model">Model ID</label><input id="model" placeholder="Enter the model ID from your provider" autocomplete="off" required></div><div id="key-field"><label for="provider-key">API key · this tab only</label><input id="provider-key" type="password" autocomplete="off" placeholder="Enter your OpenRouter API key"></div><button id="check-provider" type="button">Check connection ↗</button></div><p class="helper">The key stays in this tab’s memory and is sent to your local runtime when needed. It is not saved to browser storage. Ollama must already be installed and running; this preview does not configure or restart it.</p></section>
+    <section id="history" class="panel history"><div class="panel-heading"><div><span class="section-no">04 / HISTORY</span><h2>The work, on record.</h2></div><button id="refresh" type="button">Refresh ↻</button></div><div id="history-list" class="history-list">Loading saved runs…</div></section>
+    <footer><span>EF VENTURES <span class="footer-dot">✦</span> AGENT STUDIO</span><span>Independent preview built on <a href="https://github.com/androoAGI/starnet" target="_blank" rel="noopener noreferrer">StarNet’s open-source runtime</a>. Original interface by EF Ventures.</span></footer>
+  </main>
+</body>
+</html>
