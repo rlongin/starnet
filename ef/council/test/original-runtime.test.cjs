@@ -7,17 +7,25 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createGateway } = require('../gateway.cjs');
+const { createRouter } = require('../hybrid/router.cjs');
+const { runBridge } = require('../hybrid/pc-bridge.cjs');
 const { makeRun, createStreamParser } = require('../../../frontend/ef/core.js');
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-test('original station assets, runtime token, streamed task and history work through the gateway', { timeout: 45000 }, async () => {
+test('original station assets, runtime token, PC/cloud model routing and history work through the gateway', { timeout: 45000 }, async () => {
   const repo = path.resolve(__dirname, '../../..');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'council-runtime-'));
   const model = http.createServer((req, res) => {
+    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }] }));
     if (req.url.includes('/models')) return res.end(JSON.stringify({ data: [{ id: 'test/model', context_length: 16000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] }] }));
     if (req.url.includes('/chat/completions')) {
-      req.resume(); req.on('end', () => {
+      let raw = ''; req.on('data', b => raw += b); req.on('end', () => {
+        const request = JSON.parse(raw);
+        if (request.stream === false) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: request.model === 'qwen3:8b' ? 'COUNCIL_LOCAL_OK' : 'COUNCIL_CLOUD_OK' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'COUNCIL_GATEWAY_OK' } }] }) + '\n\n');
         res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0 } }) + '\n\n');
@@ -27,6 +35,13 @@ test('original station assets, runtime token, streamed task and history work thr
     res.writeHead(404); res.end();
   });
   const modelPort = await listen(model);
+  const stationKey = 'S'.repeat(43), bridgeKey = 'B'.repeat(43);
+  const router = createRouter({ publicOrigin: 'https://bridge.example.test', stationKey, bridgeKey,
+    localMs: 3000, cloudMs: 3000, cloudEnabled: true, cloudUrl: `http://127.0.0.1:${modelPort}/v1/chat/completions`,
+    cloudKey: 'fixture', cloudModel: 'cloud-fixture', maxTokens: 2048, maxInFlight: 2, contextLength: 8192 });
+  const routerPort = await listen(router), routerBase = `http://127.0.0.1:${routerPort}`;
+  const bridgeController = new AbortController();
+  const bridge = runBridge({ publicOrigin: routerBase, bridgeKey, model: 'qwen3:8b', ollamaOrigin: `http://127.0.0.1:${modelPort}` }, { signal: bridgeController.signal, retryMs: 10 });
   const reserve = http.createServer(); const workerPort = await listen(reserve); await new Promise(resolve => reserve.close(resolve));
   let logs = '';
   const worker = spawn(process.execPath, [path.join(repo, 'sidecar/index.js')], {
@@ -66,18 +81,29 @@ test('original station assets, runtime token, streamed task and history work thr
     for (let i = 0; i < assets.length; i += 12) await Promise.all(assets.slice(i, i + 12).map(async asset => assert.equal((await request('/' + asset.replace(/^\//, ''), { headers: { Cookie } })).status, 200, asset)));
     assert.equal((await request('/api/runtime/agent', { headers: { Cookie } })).status, 403, 'Sidecar token guard still applies behind gateway session');
     const headers = { Cookie, Origin: 'https://station.example.test', 'x-starnet-token': token, 'Content-Type': 'application/json' };
-    const run = await request('/api/run', { method: 'POST', headers, body: JSON.stringify(makeRun({ model: 'test/model', provider: 'openrouter', prompt: 'Say hello', key: 'fixture', capabilities: [] })) });
-    assert.equal(run.status, 200);
-    const events = []; const parser = createStreamParser(e => events.push(e)); parser.push(run.text); parser.finish();
-    assert.ok(events.some(e => e.name === 'agent.token' && e.payload.delta.includes('COUNCIL_GATEWAY_OK')));
-    assert.ok(events.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'));
+    let bridgeReady = false;
+    for (let i = 0; i < 100; i++) {
+      const status = await (await fetch(routerBase + '/status', { headers: { Authorization: 'Bearer ' + stationKey } })).json();
+      if (status.localReady) { bridgeReady = true; break; } await delay(10);
+    }
+    assert.ok(bridgeReady, 'Outbound PC bridge ready');
+    for (const expected of ['COUNCIL_LOCAL_OK', 'COUNCIL_CLOUD_OK']) {
+      if (expected === 'COUNCIL_CLOUD_OK') { bridgeController.abort(); await bridge; await delay(30); }
+      const body = { ...makeRun({ model: 'ef-hybrid', provider: 'custom', prompt: 'Say hello', key: stationKey, capabilities: [] }), baseUrl: routerBase + '/v1' };
+      const run = await request('/api/run', { method: 'POST', headers, body: JSON.stringify(body) });
+      assert.equal(run.status, 200);
+      const events = []; const parser = createStreamParser(e => events.push(e)); parser.push(run.text); parser.finish();
+      assert.ok(events.some(e => e.name === 'agent.token' && e.payload.delta.includes(expected)), run.text.slice(-4000));
+      assert.ok(events.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'));
+    }
     const history = await request('/api/runs?agent=*&limit=12', { headers });
-    assert.ok(JSON.parse(history.text).runs.length > 0);
-    console.log(`Original station, ${assets.length} assets, authenticated model stream and persisted history passed through gateway.`);
+    assert.ok(JSON.parse(history.text).runs.length >= 2);
+    console.log(`Original station, ${assets.length} assets, PC and cloud model replies, and both task histories passed through gateway.`);
   } finally {
     const exited = new Promise(resolve => worker.once('exit', resolve)); worker.kill('SIGTERM');
     await Promise.race([exited, delay(1500)]); if (worker.exitCode === null) worker.kill('SIGKILL');
-    await Promise.all([gateway, model].map(server => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); })));
+    bridgeController.abort(); await bridge;
+    await Promise.all([gateway, router, model].map(server => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); })));
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

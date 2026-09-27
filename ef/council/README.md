@@ -4,6 +4,8 @@ This gateway adds Nexus sign-in in front of an **existing original StarNet stati
 
 Status: development pilot, not deployed. No station hosts, domains, member assignments or real Supabase credentials have been provisioned. The gateway is not an OS sandbox and must never be used to put multiple private stations under one privileged OS account. Automated tests prove application-level routing boundaries, not host isolation or production readiness.
 
+The [hybrid model pilot](hybrid/README.md) adds an outbound PC/Ollama bridge and cloud-model fallback while this cloud station retains the single task history, workspace, and scheduler. It does not synchronize the existing desktop installation or migrate its schedules. Neither package is deployed.
+
 ## Required deployment boundary
 
 - One dedicated VM or equivalently isolated host per private station; one additional host for the shared council. Use a separate HTTPS hostname for each. Distinct folders or ports alone are insufficient: StarNet agents can run tools and commands.
