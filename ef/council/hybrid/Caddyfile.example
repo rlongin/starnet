@@ -1,0 +1,16 @@
+# On the dedicated station VM. Replace the hostname with HYBRID_BRIDGE_ORIGIN's host.
+# Add this separate site block to a validated Caddy configuration, not to the PC's Cloudflared setup.
+ric-model-bridge.example.test {
+    @bridge path /worker/*
+    handle @bridge {
+        request_body {
+            max_size 8MB
+        }
+        reverse_proxy 127.0.0.1:8899 {
+            header_up Host {host}
+        }
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

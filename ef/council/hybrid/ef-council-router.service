@@ -1,0 +1,28 @@
+[Unit]
+Description=EF Council hybrid model router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ef-council-router
+Group=ef-council-router
+WorkingDirectory=/opt/starnet
+EnvironmentFile=/etc/ef-council/router.env
+ExecStart=/usr/bin/node /opt/starnet/ef/council/hybrid/router.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
