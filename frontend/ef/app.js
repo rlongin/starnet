@@ -94,8 +94,10 @@
         document.querySelector('.topbar .pill').textContent = 'DESIGN PREVIEW';
         return;
       }
-      const health = await json('/api/health');
-      if (health.degraded) throw new Error('The local runtime is in recovery mode. Check its terminal before running tasks.');
+      // The sidecar health endpoint returns plain text "ok", not JSON.
+      // api() still rejects non-2xx responses, including degraded runtime states.
+      const health = (await (await api('/api/health')).text()).trim();
+      if (health !== 'ok') throw new Error('Unexpected runtime health response. Check its terminal before running tasks.');
       const runtime = await json('/api/runtime/agent');
       for (const a of runtime.agents || []) {
         if (a.agentId === 'agent') continue;
