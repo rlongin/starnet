@@ -13,7 +13,7 @@ npm ci --prefix ef
 npm start --prefix ef
 ```
 
-Open **http://127.0.0.1:8797/ef/**. The large upstream repository may take time to clone.
+Open **http://127.0.0.1:8797/** for the original StarNet station, or **http://127.0.0.1:8797/ef/** for the EF task page. The large upstream repository may take time to clone.
 
 The page supports OpenRouter (bring your own API key) or an already-running Ollama instance. Enter a valid model ID from the selected provider. The connection check verifies provider access; it does not prove that a particular model will run. Entering a key does not save it. The key remains in the tab's memory and travels to the local runtime over loopback for validation and requests. The upstream runtime uses it to contact the selected provider. Live provider testing has not been performed for this preview.
 
@@ -31,7 +31,7 @@ The shortcut pins the Node executable and repository paths used during installat
 
 The installer also requests a background launch immediately. If port 8797 is already occupied, it leaves the existing process alone instead of starting a second copy. It never stops an existing process or configures Ollama, Docker, Cloudflared, or NexusRENN. Ollama still needs to be available through its existing startup setup when a local-model task is run.
 
-Open **http://127.0.0.1:8797/ef/**. Logs go to `%USERPROFILE%\.ef-agent-studio\logs\startup.log` by default. The background process does not require a terminal to remain open. A manually launched process that already occupies the port is not converted into a background process; the shortcut takes effect on the next sign-in.
+Open **http://127.0.0.1:8797/** for the original station or **http://127.0.0.1:8797/ef/** for the EF task page. Logs go to `%USERPROFILE%\.ef-agent-studio\logs\startup.log` by default. The background process does not require a terminal to remain open. A manually launched process that already occupies the port is not converted into a background process; the shortcut takes effect on the next sign-in.
 
 To remove only the managed startup shortcut:
 
@@ -45,7 +45,13 @@ Validation: six Node tests cover duplicate prevention, a real background child l
 
 ## Original StarNet visual station
 
-The EF preview is a separate simplified interface. It does not include the upstream pixel-art station. To explore the original visual product, use the original [StarNet desktop release](https://github.com/androoAGI/starnet-releases/releases/latest) with its own workspace and branding. Review the upstream installation guide before installing. The upstream README excludes the StarNet name, logos, station artwork and sprites from the MIT code grant; an EF-distributed visual adaptation needs its own visual assets or separate permission.
+The local launcher now preserves the original StarNet station at **http://127.0.0.1:8797/**. It serves the existing upstream HTML, styles, scripts, fonts and sprites without redesigning them. The EF task page remains at `/ef/`; both pages use the same runtime and isolated workspace. First-time station onboarding may still be needed because the earlier EF task page did not create a visual station save.
+
+After pulling this change, stop the manually running EF process with Ctrl+C in its terminal, then run the startup installer above. If it says the port is occupied, it has left the old process alone: the new view will become available when the updated launcher runs after your next Windows sign-in. The startup shortcut launches the runtime; open the station URL in your browser when you want the visual.
+
+The launcher enables `STARNET_EF_ORIGINAL_UI=1` while keeping `STARNET_EF_STUDIO=1`, workspace isolation, host/token checks and cloud restrictions. Set `EF_STUDIO_ORIGINAL_UI=0` before launching to return to the branded-only view. Direct EF-mode sidecar launches without the original-UI flag still serve only the four EF files.
+
+This is the original browser-rendered station, not the native desktop shell. Native terminal functionality still requires the optional `node-pty` dependency. For the packaged desktop product, use the original [StarNet desktop release](https://github.com/androoAGI/starnet-releases/releases/latest). Preserve upstream branding and notices: the upstream README excludes the StarNet name, logos, station artwork and sprites from the MIT code grant; enabling this local view does not grant redistribution rights for an EF-branded product.
 
 ## What can be tested
 
@@ -77,7 +83,9 @@ Nexus's standalone preview path is `/previews/agent-studio`: [open the design pr
 npm test --prefix ef
 ```
 
-The tests start the real backend in a temporary workspace and use a **local mock model provider**. They verify asset serving, blocked upstream artwork paths, token/host/origin checks, provider credential validation, successful and failed streamed runs, and persisted run history. They also exercise fragmented NDJSON events and honest failure labels. No paid provider calls are made by these tests.
+The tests start the real backend in a temporary workspace and use a **local mock model provider**. They verify asset serving, blocked upstream artwork paths in branded-only mode, token/host/origin checks, provider credential validation, successful and failed streamed runs, and persisted run history. The original-station test runs the real local launcher, checks unchanged station HTML and all 268 linked dependencies, confirms that both views receive the same runtime token, and checks host/API restrictions. They also exercise fragmented NDJSON events and honest failure labels. No paid provider calls are made by these tests.
+
+All 16 Node tests passed for the original-station change. The remote browser could not access the loopback test server, so visual rendering and Windows restart/sign-in acceptance still require a check on the Windows machine.
 
 Hosted desktop browser check passed at 1363 px: page rendered, no horizontal overflow, task starter populated the brief, and execution/provider/key controls remained disabled in design mode. Tablet/phone visual checks remain outstanding.
 
@@ -85,7 +93,7 @@ Manual acceptance still required: live provider response; permission prompts in 
 
 ## Attribution and distribution
 
-Upstream: https://github.com/androoAGI/starnet at `7ee93ceac14c6bcb500ab263e92186e3a2d8b5d7`. Preserve root `LICENSE` and `NOTICE.md`. The original StarNet name, logo, station artwork, sprites and brand identity are excluded from its MIT code grant according to upstream's notices. The EF interface uses original HTML/CSS and system fonts; EF mode serves only its four UI files. Upstream artwork remains in fork history but is not used by this preview. Do not ship upstream artwork or desktop packages as EF products.
+Upstream: https://github.com/androoAGI/starnet at `7ee93ceac14c6bcb500ab263e92186e3a2d8b5d7`. Preserve root `LICENSE` and `NOTICE.md`. The original StarNet name, logo, station artwork, sprites and brand identity are excluded from its MIT code grant according to upstream's notices. The EF interface uses original HTML/CSS and system fonts. Branded-only EF mode serves its four UI files; the local launcher additionally exposes the original StarNet view with its existing branding. Do not ship upstream artwork or desktop packages as EF products.
 
 The preview's visual identity does not imply endorsement by StarNet or its author. No Experience tile should be created until Ric tests and approves the app.
 

@@ -60,7 +60,8 @@ async function install() {
   const result = await launch();
   console.log(result.started ? 'EF Studio launched in the background.' : 'Port ' + result.port + ' is already in use; the existing process was left running.');
   console.log('Automatic launch: when this Windows user signs in, including after a restart.');
-  console.log('Open http://127.0.0.1:' + result.port + '/ef/');
+  console.log('Original StarNet station: http://127.0.0.1:' + result.port + '/');
+  console.log('EF task page: http://127.0.0.1:' + result.port + '/ef/');
   console.log('Startup log: ' + result.logPath);
 }
 if (require.main === module) install().catch(error => { console.error(error.message); process.exitCode = 1; });

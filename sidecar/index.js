@@ -21315,11 +21315,12 @@ async function serveShared(req, res) {
 async function serveStatic(req, res) {
   try {
     const url = decodeURIComponent((req.url || '/').split('?')[0]);
-    // EF's independently branded local preview never serves upstream artwork/UI.
+    // Keep branded-only EF hosting separate from the original local station view.
     const efStudio = EF_STUDIO;
+    const originalStation = efStudio && ENV('EF_ORIGINAL_UI') === '1';
     if (efStudio && !apiauth.isAllowedHost(req.headers.host)) { res.writeHead(403); return res.end('forbidden host'); }
-    const efEntry = url === '/' || url === '/ef' || url === '/ef/';
-    if (efStudio && !efEntry && !['/ef/index.html', '/ef/studio.css', '/ef/core.js', '/ef/app.js'].includes(url)) {
+    const efEntry = (url === '/' && !originalStation) || url === '/ef' || url === '/ef/';
+    if (efStudio && !originalStation && !efEntry && !['/ef/index.html', '/ef/studio.css', '/ef/core.js', '/ef/app.js'].includes(url)) {
       res.writeHead(404); return res.end('not found');
     }
     const rel = (efStudio && efEntry ? 'ef/index.html' : url === '/' ? 'index.html' : url.replace(/^\/+/, ''));
