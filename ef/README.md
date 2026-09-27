@@ -17,6 +17,36 @@ Open **http://127.0.0.1:8797/ef/**. The large upstream repository may take time 
 
 The page supports OpenRouter (bring your own API key) or an already-running Ollama instance. Enter a valid model ID from the selected provider. The connection check verifies provider access; it does not prove that a particular model will run. Entering a key does not save it. The key remains in the tab's memory and travels to the local runtime over loopback for validation and requests. The upstream runtime uses it to contact the selected provider. Live provider testing has not been performed for this preview.
 
+## Automatic Windows startup
+
+On the Windows machine, open a terminal in the checkout that actually serves EF Studio and run:
+
+```powershell
+node .\ef\install-windows-startup.cjs
+```
+
+This installs and reads back an **EF Agent Studio** shortcut in the current user's Windows Startup folder. It launches quietly when that user signs in, including after a restart. Administrator access is not required and no execution-policy setting is changed. This is sign-in startup, not a system service that runs before login.
+
+The shortcut pins the Node executable and repository paths used during installation. Keep this checkout at the same path; rerun the installer after moving it or changing the Node installation. Ric's confirmed working checkout is `C:\Users\Ricardo\Documents\GitHub\starnet`.
+
+The installer also requests a background launch immediately. If port 8797 is already occupied, it leaves the existing process alone instead of starting a second copy. It never stops an existing process or configures Ollama, Docker, Cloudflared, or NexusRENN. Ollama still needs to be available through its existing startup setup when a local-model task is run.
+
+Open **http://127.0.0.1:8797/ef/**. Logs go to `%USERPROFILE%\.ef-agent-studio\logs\startup.log` by default. The background process does not require a terminal to remain open. A manually launched process that already occupies the port is not converted into a background process; the shortcut takes effect on the next sign-in.
+
+To remove only the managed startup shortcut:
+
+```powershell
+node .\ef\install-windows-startup.cjs --remove
+```
+
+Removal leaves current processes and workspace data intact. An unrelated shortcut with the same filename is never overwritten or deleted.
+
+Validation: six Node tests cover duplicate prevention, a real background child launch, real TCP listener detection, invalid-port rejection, shortcut argument encoding, and scoped removal. Windows shortcut creation and restart/sign-in acceptance must be verified on the Windows machine; these Node tests do not claim Windows end-to-end coverage.
+
+## Original StarNet visual station
+
+The EF preview is a separate simplified interface. It does not include the upstream pixel-art station. To explore the original visual product, use the original [StarNet desktop release](https://github.com/androoAGI/starnet-releases/releases/latest) with its own workspace and branding. Review the upstream installation guide before installing. The upstream README excludes the StarNet name, logos, station artwork and sprites from the MIT code grant; an EF-distributed visual adaptation needs its own visual assets or separate permission.
+
 ## What can be tested
 
 - Original EF interface and responsive desktop/tablet/mobile presentation.
