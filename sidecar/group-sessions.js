@@ -447,7 +447,8 @@ function makeGroupSessions(d) {
         // Shared-room turns do not need StarNet's group tool schema just to answer a named
         // participant.  HNIC will own explicit orchestration/delegation later.
         const participant = roster().find(a => a.id === t.agentId);
-        const councilTools = participant?.provider === 'ollama' ? [] : toolDefs(id, t.id, ac.signal);
+        const efCouncilLocal = process.env.STARNET_EF_STUDIO === '1';
+        const councilTools = efCouncilLocal || participant?.provider === 'ollama' ? [] : toolDefs(id, t.id, ac.signal);
         const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: councilTools,
           prompt: async fields => {
             const promptId = d.id();
