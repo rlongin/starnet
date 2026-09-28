@@ -456,23 +456,64 @@ function makeGroupSessions(d) {
         const participant = roster().find(a => a.id === t.agentId);
         const efCouncilLocal = process.env.STARNET_EF_STUDIO === '1';
         const councilTools = efCouncilLocal || participant?.provider === 'ollama' ? [] : toolDefs(id, t.id, ac.signal);
-        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: councilTools,
-          prompt: async fields => {
-            const promptId = d.id();
-            await chain;
-            await update(id, state => { const turn = state.turns.find(x => x.id === t.id); if (turn.state !== 'stopping') { turn.state = 'waiting for approval'; turn.approval = { promptId, ...fields }; } });
-            const answer = await new Promise(resolve => {
-              let timer;
-              const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
-              const onAbort = () => finish('deny');
-              pending.set(promptId, { id, turnId: t.id, finish });
-              timer = setTimeout(onAbort, 300000);
-              ac.signal.addEventListener('abort', onAbort, { once: true });
-              if (ac.signal.aborted) onAbort();
-            });
-            await update(id, state => { const turn = state.turns.find(x => x.id === t.id); delete turn.approval; if (turn.state !== 'stopping') turn.state = 'running'; });
-            return answer;
-          } });
+        let result;
+
+        // EF Agent Council utility path:
+        // Shared-room turns go straight to local Ollama instead of StarNet's agentic tool runner.
+        // The group pump is already sequential, so multiple Council agents can safely share one model.
+        if (efCouncilLocal) {
+          const model = String(participant?.model || 'llama3.2:3b');
+          const originMsg = g.messages.find(m => m.id === t.origin);
+          const recent = g.messages.slice(-12).map(m => {
+            const who = m.author === 'user' ? 'COMMANDER' : (roster().find(a => a.id === m.author)?.name || m.author);
+            return who + ': ' + String(m.content || '');
+          }).join('\n');
+          const request = String(t.request || originMsg?.content || '').replace(/(^|\s)@[\w-]+/g, ' ').trim();
+          const roleName = participant?.name || t.agentId;
+          const system = 'You are ' + roleName + ', a member of the EF Agent Council. ' +
+            'Answer the Commander directly in useful plain language. Do not output JSON, code, function calls, tool calls, or pseudo-tool syntax. ' +
+            'Do not attempt to contact another agent. Use the shared conversation only as context. Be concise and complete.';
+          const body = {
+            model,
+            stream: false,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: 'Recent shared conversation:\n' + recent + '\n\nCurrent request:\n' + request }
+            ],
+            options: { temperature: 0.4 }
+          };
+          emit('agent.run.start', { runId, agentId: t.agentId, model });
+          const response = await fetch('http://127.0.0.1:11434/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: ac.signal
+          });
+          if (!response.ok) throw new Error('Ollama shared-room request failed: HTTP ' + response.status);
+          const data = await response.json();
+          const textOut = String(data?.message?.content || '').trim();
+          if (!textOut) throw new Error('Ollama shared-room request returned no text');
+          output = textOut;
+          result = { reason: 'done', messages: [{ role: 'assistant', content: textOut }] };
+        } else {
+          result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: councilTools,
+            prompt: async fields => {
+              const promptId = d.id();
+              await chain;
+              await update(id, state => { const turn = state.turns.find(x => x.id === t.id); if (turn.state !== 'stopping') { turn.state = 'waiting for approval'; turn.approval = { promptId, ...fields }; } });
+              const answer = await new Promise(resolve => {
+                let timer;
+                const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
+                const onAbort = () => finish('deny');
+                pending.set(promptId, { id, turnId: t.id, finish });
+                timer = setTimeout(onAbort, 300000);
+                ac.signal.addEventListener('abort', onAbort, { once: true });
+                if (ac.signal.aborted) onAbort();
+              });
+              await update(id, state => { const turn = state.turns.find(x => x.id === t.id); delete turn.approval; if (turn.state !== 'stopping') turn.state = 'running'; });
+              return answer;
+            } });
+        }
         await chain;
         const last = (result?.messages || []).filter(m => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()).at(-1);
         if (last) output = last.content;
