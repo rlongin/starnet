@@ -476,6 +476,21 @@ function makeGroupSessions(d) {
         await chain;
         const last = (result?.messages || []).filter(m => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()).at(-1);
         if (last) output = last.content;
+
+        // EF Council utility guard: local small models sometimes print a would-be tool invocation
+        // instead of answering (for example: await tool("code.run", ...) or raw tool JSON).
+        // In Council mode there are intentionally no tools on these lightweight shared-room turns,
+        // so treat that output as invalid rather than showing it to the Commander.
+        if (process.env.STARNET_EF_STUDIO === '1') {
+          const pseudoTool = /(?:await\s+tool\s*\(|code\.run|group\.handoff|brief\.ask|["']parameters["']\s*:|["']query["']\s*:)/i;
+          if (pseudoTool.test(String(output || ''))) {
+            const originMsg = g.messages.find(m => m.id === t.origin);
+            const plainRequest = t.request || originMsg?.content || '';
+            output = 'I could not produce a usable plain-language response for this turn. Please answer this request directly in your own chat: ' + plainRequest;
+            error = '';
+          }
+        }
+
         await update(id, state => {
           const current = state.turns.find(x => x.id === t.id);
           const waiting = (state.questions || []).some(q => q.turnId === t.id && q.state === 'pending');
