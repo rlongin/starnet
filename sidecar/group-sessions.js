@@ -464,35 +464,55 @@ function makeGroupSessions(d) {
         if (efCouncilLocal) {
           const model = String(participant?.model || 'llama3.2:3b');
           const originMsg = g.messages.find(m => m.id === t.origin);
-          const recent = g.messages.slice(-12).map(m => {
-            const who = m.author === 'user' ? 'COMMANDER' : (roster().find(a => a.id === m.author)?.name || m.author);
-            return who + ': ' + String(m.content || '');
-          }).join('\n');
+          const pseudoTool = /(?:await\s+tool\s*\(|code\.run|group\.handoff|brief\.ask|["']parameters["']\s*:|["']query["']\s*:)/i;
+          // Do not feed prior malformed tool-like replies back into the local model; that trains the
+          // next turn to imitate the exact failure we are trying to remove.
+          const recent = g.messages
+            .filter(m => !pseudoTool.test(String(m.content || '')))
+            .slice(-6)
+            .map(m => {
+              const who = m.author === 'user' ? 'COMMANDER' : (roster().find(a => a.id === m.author)?.name || m.author);
+              return who + ': ' + String(m.content || '');
+            }).join('\n');
           const request = String(t.request || originMsg?.content || '').replace(/(^|\s)@[\w-]+/g, ' ').trim();
           const roleName = participant?.name || t.agentId;
           const system = 'You are ' + roleName + ', a member of the EF Agent Council. ' +
-            'Answer the Commander directly in useful plain language. Do not output JSON, code, function calls, tool calls, or pseudo-tool syntax. ' +
-            'Do not attempt to contact another agent. Use the shared conversation only as context. Be concise and complete.';
-          const body = {
-            model,
-            stream: false,
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: 'Recent shared conversation:\n' + recent + '\n\nCurrent request:\n' + request }
-            ],
-            options: { temperature: 0.4 }
+            'Return only a useful plain-English answer to the current request. Never output JSON, code, function calls, tool calls, parameters, query objects, or pseudo-tool syntax. ' +
+            'Do not attempt to contact another agent. Be concise and complete.';
+          const askLocal = async (userContent) => {
+            const response = await fetch('http://127.0.0.1:11434/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model,
+                stream: false,
+                messages: [
+                  { role: 'system', content: system },
+                  { role: 'user', content: userContent }
+                ],
+                options: { temperature: 0.2 }
+              }),
+              signal: ac.signal
+            });
+            if (!response.ok) throw new Error('Ollama shared-room request failed: HTTP ' + response.status);
+            const data = await response.json();
+            return String(data?.message?.content || '').trim();
           };
           emit('agent.run.start', { runId, agentId: t.agentId, model });
-          const response = await fetch('http://127.0.0.1:11434/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            signal: ac.signal
-          });
-          if (!response.ok) throw new Error('Ollama shared-room request failed: HTTP ' + response.status);
-          const data = await response.json();
-          const textOut = String(data?.message?.content || '').trim();
+          let textOut = await askLocal((recent ? 'Context:\n' + recent + '\n\n' : '') + 'Current request:\n' + request);
           if (!textOut) throw new Error('Ollama shared-room request returned no text');
+
+          // One automatic correction pass.  The Commander should never have to retry a local model
+          // merely because it chose a tool-call shaped response.
+          if (pseudoTool.test(textOut)) {
+            textOut = await askLocal(
+              'Answer this request directly in plain English. Do not mention tools, functions, JSON, parameters, or queries. ' +
+              'Do not describe what you would do; give the actual answer now.\n\nRequest:\n' + request
+            );
+          }
+          if (!textOut || pseudoTool.test(textOut)) {
+            throw new Error('Local model did not produce a usable plain-language Council response');
+          }
           output = textOut;
           result = { reason: 'done', messages: [{ role: 'assistant', content: textOut }] };
         } else {
