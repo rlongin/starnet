@@ -1656,3 +1656,31 @@ body.crt-dull #chat-log, body.crt-dull .term-body, body.crt-dull #left, body.crt
 .deliverable-image { display: block; max-width: 100%; max-height: 55vh; object-fit: contain; border: 1px solid var(--ph-dim); }
 .deliverable-csv { border-collapse: collapse; width: 100%; font-size: 12px; }
 .deliverable-csv th, .deliverable-csv td { border: 1px solid var(--ph-dim); padding: 4px 6px; text-align: left; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+
+/* EF Ventures Council Station identity */
+.ef-council-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--ph-faint);
+  font-family: inherit;
+  white-space: nowrap;
+  letter-spacing: 2px;
+  color: var(--ph);
+}
+
+.ef-council-brand b {
+  font-size: 18px;
+  letter-spacing: 3px;
+}
+
+.ef-council-brand span {
+  font-size: 12px;
+  color: var(--ph-dim);
+  letter-spacing: 3px;
+}
+
+@media (max-width: 800px) {
+  .ef-council-brand span { display: none; }
+}
