@@ -443,7 +443,12 @@ function makeGroupSessions(d) {
       };
       try {
         if (get(id).turns.find(x => x.id === t.id).state === 'stopping') ac.abort();
-        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: toolDefs(id, t.id, ac.signal),
+        // EF Council local mode: keep Ollama group replies lightweight and reliable.
+        // Shared-room turns do not need StarNet's group tool schema just to answer a named
+        // participant.  HNIC will own explicit orchestration/delegation later.
+        const participant = roster().find(a => a.id === t.agentId);
+        const councilTools = participant?.provider === 'ollama' ? [] : toolDefs(id, t.id, ac.signal);
+        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: councilTools,
           prompt: async fields => {
             const promptId = d.id();
             await chain;
