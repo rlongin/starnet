@@ -90,6 +90,10 @@ async function stationFor(member) {
     STARNET_WORKSPACES: workspaceRoot,
     SKYNET_PORT: String(port),
     STARNET_PORT: String(port),
+    // Serve the complete StarNet frontend for Nexus member stations. In EF_STUDIO mode
+    // the sidecar intentionally restricts static files to /ef/*, which strips the normal
+    // css/, app/ and assets/ resources and leaves the browser with raw HTML.
+    EF_ORIGINAL_UI: "1",
     EF_NEXUS_MEMBER_NAMESPACE: namespace,
   };
   const child = spawn(process.execPath, [path.join(root, "sidecar", "index.js")], { cwd: root, env, stdio: "inherit", windowsHide: true });
