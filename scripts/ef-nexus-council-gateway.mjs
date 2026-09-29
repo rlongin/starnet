@@ -24,7 +24,9 @@ const root = path.resolve(here, "..");
 const host = "127.0.0.1";
 const gatewayPort = Number(process.env.EF_COUNCIL_GATEWAY_PORT || 8798);
 const firstMemberPort = Number(process.env.EF_COUNCIL_MEMBER_PORT_START || 8801);
-const secret = String(process.env.EF_COUNCIL_LAUNCH_SECRET || "").trim();\nconst defaultStationPort = Number(process.env.EF_COUNCIL_EXISTING_STATION_PORT || 0);\nconst defaultMember = String(process.env.EF_COUNCIL_EXISTING_STATION_MEMBER || "").trim();
+const secret = String(process.env.EF_COUNCIL_LAUNCH_SECRET || "").trim();
+const defaultStationPort = Number(process.env.EF_COUNCIL_EXISTING_STATION_PORT || 0);
+const defaultMember = String(process.env.EF_COUNCIL_EXISTING_STATION_MEMBER || "").trim();
 const maxTicketAgeMs = 2 * 60 * 1000;
 const stations = new Map();
 let nextPort = firstMemberPort;
@@ -65,7 +67,12 @@ async function portReady(port) {
 }
 async function stationFor(member) {
   const namespace = namespaceFor(member);
-  const existing = stations.get(namespace);\n  if (!existing && defaultStationPort && member === defaultMember && await portReady(defaultStationPort)) {\n    const adopted = { port: defaultStationPort, child: null, namespace, workspaceRoot: null, adopted: true };\n    stations.set(namespace, adopted);\n    return adopted;\n  }
+  const existing = stations.get(namespace);
+  if (!existing && defaultStationPort && member === defaultMember && await portReady(defaultStationPort)) {
+    const adopted = { port: defaultStationPort, child: null, namespace, workspaceRoot: null, adopted: true };
+    stations.set(namespace, adopted);
+    return adopted;
+  }
   if (existing && await portReady(existing.port)) return existing;
   if (existing) stations.delete(namespace);
 
