@@ -22,13 +22,16 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const host = "127.0.0.1";
-const gatewayPort = Number(process.env.EF_COUNCIL_GATEWAY_PORT || 8798);
+const gatewayPort = Number(process.env.EF_COUNCIL_GATEWAY_PORT || 8799);
 const firstMemberPort = Number(process.env.EF_COUNCIL_MEMBER_PORT_START || 8801);
 const secret = String(process.env.EF_COUNCIL_LAUNCH_SECRET || "").trim();
 const defaultStationPort = Number(process.env.EF_COUNCIL_EXISTING_STATION_PORT || 0);
 const defaultMember = String(process.env.EF_COUNCIL_EXISTING_STATION_MEMBER || "").trim();
 const maxTicketAgeMs = 2 * 60 * 1000;
 const stations = new Map();
+const sessions = new Map();
+const sessionCookie = "ef_council_session";
+const sessionMaxAgeMs = 12 * 60 * 60 * 1000;
 let nextPort = firstMemberPort;
 
 if (secret.length < 32) {
@@ -102,27 +105,113 @@ async function stationFor(member) {
   throw new Error("member Council runtime did not become ready");
 }
 
+function cookieValue(req, name) {
+  const raw = String(req.headers.cookie || "");
+  for (const part of raw.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return rest.join("=");
+  }
+  return "";
+}
+function sessionFor(req) {
+  const id = cookieValue(req, sessionCookie);
+  const session = sessions.get(id);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > sessionMaxAgeMs) {
+    sessions.delete(id);
+    return null;
+  }
+  return session;
+}
+function proxyHttp(req, res, station) {
+  const headers = { ...req.headers, host: `${host}:${station.port}` };
+  delete headers["cf-connecting-ip"];
+  delete headers["cf-ipcountry"];
+  delete headers["cf-ray"];
+  delete headers["cf-visitor"];
+  const upstream = http.request({
+    host,
+    port: station.port,
+    method: req.method,
+    path: req.url,
+    headers,
+  }, upstreamRes => {
+    const responseHeaders = { ...upstreamRes.headers };
+    delete responseHeaders["content-security-policy"];
+    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
+    upstreamRes.pipe(res);
+  });
+  upstream.on("error", error => {
+    if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain", "cache-control": "no-store" });
+    res.end("Council runtime unavailable: " + error.message);
+  });
+  req.pipe(upstream);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
     if (url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify({ ok: true, activeMemberStations: stations.size }));
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
-    if (url.pathname !== "/launch") {
-      res.writeHead(404, { "content-type": "text/plain" }); res.end("Not found"); return;
+    if (url.pathname === "/launch") {
+      const ticket = verifyTicket(url.searchParams.get("ticket"));
+      const station = await stationFor(String(ticket.sub));
+      const id = crypto.randomBytes(32).toString("base64url");
+      sessions.set(id, { station, createdAt: Date.now(), member: String(ticket.sub) });
+      const target = new URL("/", "https://council.efventures.app");
+      if (ticket.agent) target.searchParams.set("agent", String(ticket.agent));
+      res.writeHead(302, {
+        location: target.pathname + target.search,
+        "set-cookie": `${sessionCookie}=${id}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`,
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+      });
+      res.end();
+      return;
     }
-    const ticket = verifyTicket(url.searchParams.get("ticket"));
-    const station = await stationFor(String(ticket.sub));
-    const target = new URL(`http://${host}:${station.port}/`);
-    if (ticket.agent) target.searchParams.set("agent", String(ticket.agent));
-    res.writeHead(302, { location: target.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" });
-    res.end();
+    const session = sessionFor(req);
+    if (!session) {
+      res.writeHead(401, { "content-type": "text/plain", "cache-control": "no-store" });
+      res.end("EF Agent Council session required.");
+      return;
+    }
+    proxyHttp(req, res, session.station);
   } catch (error) {
     res.writeHead(401, { "content-type": "text/plain", "cache-control": "no-store" });
     res.end("EF Agent Council launch denied: " + (error instanceof Error ? error.message : "unknown error"));
   }
+});
+
+server.on("upgrade", (req, socket, head) => {
+  const session = sessionFor(req);
+  if (!session) {
+    socket.write("HTTP/1.1 401 Unauthorized\\r\\nConnection: close\\r\\n\\r\\n");
+    socket.destroy();
+    return;
+  }
+  const upstream = http.request({
+    host,
+    port: session.station.port,
+    method: req.method,
+    path: req.url,
+    headers: { ...req.headers, host: `${host}:${session.station.port}` },
+  });
+  upstream.on("upgrade", (upstreamRes, upstreamSocket, upstreamHead) => {
+    let response = `HTTP/1.1 ${upstreamRes.statusCode || 101} ${upstreamRes.statusMessage || "Switching Protocols"}\\r\\n`;
+    for (const [key, value] of Object.entries(upstreamRes.headers)) {
+      if (Array.isArray(value)) for (const item of value) response += `${key}: ${item}\\r\\n`;
+      else if (value !== undefined) response += `${key}: ${value}\\r\\n`;
+    }
+    socket.write(response + "\\r\\n");
+    if (upstreamHead.length) socket.write(upstreamHead);
+    if (head.length) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket).pipe(upstreamSocket);
+  });
+  upstream.on("error", () => socket.destroy());
+  upstream.end();
 });
 server.listen(gatewayPort, host, () => {
   console.log(`EF Agent Council Nexus gateway listening on http://${host}:${gatewayPort}`);
