@@ -31,6 +31,7 @@ const maxTicketAgeMs = 2 * 60 * 1000;
 const stations = new Map();
 const sessions = new Map();
 const sessionCookie = "ef_council_session";
+const sessionQuery = "ef_session";
 const sessionMaxAgeMs = 12 * 60 * 60 * 1000;
 let nextPort = firstMemberPort;
 
@@ -114,7 +115,8 @@ function cookieValue(req, name) {
   return "";
 }
 function sessionFor(req) {
-  const id = cookieValue(req, sessionCookie);
+  const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
+  const id = cookieValue(req, sessionCookie) || url.searchParams.get(sessionQuery) || "";
   const session = sessions.get(id);
   if (!session) return null;
   if (Date.now() - session.createdAt > sessionMaxAgeMs) {
@@ -162,6 +164,7 @@ const server = http.createServer(async (req, res) => {
       const id = crypto.randomBytes(32).toString("base64url");
       sessions.set(id, { station, createdAt: Date.now(), member: String(ticket.sub) });
       const target = new URL("/", "https://council.efventures.app");
+      target.searchParams.set(sessionQuery, id);
       if (ticket.agent) target.searchParams.set("agent", String(ticket.agent));
       res.writeHead(302, {
         location: target.pathname + target.search,
