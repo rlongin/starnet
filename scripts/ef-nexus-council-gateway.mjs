@@ -117,7 +117,13 @@ function cookieValue(req, name) {
 }
 function sessionFor(req) {
   const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
-  const id = cookieValue(req, sessionCookie) || url.searchParams.get(sessionQuery) || "";
+  let id = cookieValue(req, sessionCookie) || url.searchParams.get(sessionQuery) || "";
+  if (!id && req.headers.referer) {
+    try {
+      const referer = new URL(String(req.headers.referer));
+      if (referer.hostname === "council.efventures.app") id = referer.searchParams.get(sessionQuery) || "";
+    } catch {}
+  }
   const session = sessions.get(id);
   if (!session) return null;
   if (Date.now() - session.createdAt > sessionMaxAgeMs) {
