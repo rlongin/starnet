@@ -125,6 +125,11 @@ function sessionFor(req) {
   }
   return session;
 }
+function proxyPath(req) {
+  const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
+  url.searchParams.delete(sessionQuery);
+  return url.pathname + (url.searchParams.size ? `?${url.searchParams.toString()}` : "");
+}
 function proxyHttp(req, res, station) {
   const headers = { ...req.headers, host: `${host}:${station.port}` };
   delete headers["cf-connecting-ip"];
@@ -135,7 +140,7 @@ function proxyHttp(req, res, station) {
     host,
     port: station.port,
     method: req.method,
-    path: req.url,
+    path: proxyPath(req),
     headers,
   }, upstreamRes => {
     const responseHeaders = { ...upstreamRes.headers };
@@ -164,7 +169,6 @@ const server = http.createServer(async (req, res) => {
       const id = crypto.randomBytes(32).toString("base64url");
       sessions.set(id, { station, createdAt: Date.now(), member: String(ticket.sub) });
       const target = new URL("/", "https://council.efventures.app");
-      target.searchParams.set(sessionQuery, id);
       if (ticket.agent) target.searchParams.set("agent", String(ticket.agent));
       res.writeHead(302, {
         location: target.pathname + target.search,
@@ -199,7 +203,7 @@ server.on("upgrade", (req, socket, head) => {
     host,
     port: session.station.port,
     method: req.method,
-    path: req.url,
+    path: proxyPath(req),
     headers: { ...req.headers, host: `${host}:${session.station.port}` },
   });
   upstream.on("upgrade", (upstreamRes, upstreamSocket, upstreamHead) => {
