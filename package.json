@@ -158,7 +158,8 @@
     "release:canary": "node scripts/update-canary.mjs",
     "release:promotion-gate": "node scripts/release-promotion-gate.mjs",
     "security:secrets": "node scripts/scan-history-secrets.mjs",
-    "eval:skills": "node scripts/eval/skills.mjs"
+    "eval:skills": "node scripts/eval/skills.mjs",
+    "ef:nexus:member": "node scripts/ef-nexus-member-station.mjs"
   },
   "devDependencies": {
     "@napi-rs/canvas": "0.1.100",
