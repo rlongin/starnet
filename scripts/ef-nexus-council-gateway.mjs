@@ -161,6 +161,10 @@ function proxyHttp(req, res, station) {
   }, upstreamRes => {
     const responseHeaders = { ...upstreamRes.headers };
     delete responseHeaders["content-security-policy"];
+    delete responseHeaders["content-security-policy-report-only"];
+    delete responseHeaders["x-frame-options"];
+    delete responseHeaders["cross-origin-opener-policy"];
+    delete responseHeaders["cross-origin-embedder-policy"];
     res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
     upstreamRes.pipe(res);
   });
