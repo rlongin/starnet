@@ -30,6 +30,7 @@ const defaultMember = String(process.env.EF_COUNCIL_EXISTING_STATION_MEMBER || "
 const maxTicketAgeMs = 2 * 60 * 1000;
 const stations = new Map();
 const sessions = new Map();
+const memberSessions = new Map();
 const sessionCookie = "ef_council_session";
 const sessionQuery = "ef_session";
 const sessionMaxAgeMs = 12 * 60 * 60 * 1000;
@@ -130,6 +131,15 @@ function proxyPath(req) {
   url.searchParams.delete(sessionQuery);
   return url.pathname + (url.searchParams.size ? `?${url.searchParams.toString()}` : "");
 }
+function ensureSessionCookie(req, res, session) {
+  if (cookieValue(req, sessionCookie)) return;
+  for (const [id, candidate] of sessions) {
+    if (candidate === session) {
+      res.setHeader("set-cookie", `${sessionCookie}=${id}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`);
+      return;
+    }
+  }
+}
 function proxyHttp(req, res, station) {
   const headers = { ...req.headers, host: `${host}:${station.port}` };
   delete headers["cf-connecting-ip"];
@@ -167,8 +177,11 @@ const server = http.createServer(async (req, res) => {
       const ticket = verifyTicket(url.searchParams.get("ticket"));
       const station = await stationFor(String(ticket.sub));
       const id = crypto.randomBytes(32).toString("base64url");
-      sessions.set(id, { station, createdAt: Date.now(), member: String(ticket.sub) });
+      const member = String(ticket.sub);
+      sessions.set(id, { station, createdAt: Date.now(), member });
+      memberSessions.set(member, id);
       const target = new URL("/", "https://council.efventures.app");
+      target.searchParams.set(sessionQuery, id);
       if (ticket.agent) target.searchParams.set("agent", String(ticket.agent));
       res.writeHead(302, {
         location: target.pathname + target.search,
@@ -185,6 +198,7 @@ const server = http.createServer(async (req, res) => {
       res.end("EF Agent Council session required.");
       return;
     }
+    ensureSessionCookie(req, res, session);
     proxyHttp(req, res, session.station);
   } catch (error) {
     res.writeHead(401, { "content-type": "text/plain", "cache-control": "no-store" });
