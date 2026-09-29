@@ -159,7 +159,8 @@
     "release:promotion-gate": "node scripts/release-promotion-gate.mjs",
     "security:secrets": "node scripts/scan-history-secrets.mjs",
     "eval:skills": "node scripts/eval/skills.mjs",
-    "ef:nexus:member": "node scripts/ef-nexus-member-station.mjs"
+    "ef:nexus:member": "node scripts/ef-nexus-member-station.mjs",
+    "ef:nexus:gateway": "node scripts/ef-nexus-council-gateway.mjs"
   },
   "devDependencies": {
     "@napi-rs/canvas": "0.1.100",
