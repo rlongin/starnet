@@ -102,6 +102,24 @@ module.exports = (async () => {
     A.eq(evs.find(e => e.type === 'done').finishReason, 'tool_calls', 'tool finish is normalized');
   }
 
+  // Ollama/LiteLLM fallback: some local stacks put a tool call in content as JSON instead of tool_calls.
+  // It must become a tool event and must never appear as assistant prose in COMMS.
+  {
+    const fetchImpl = async () => {
+      const sse = [
+        line({ choices: [{ delta: { content: '{"name":"web_search","parameters":{"query":"local restaurants"}}' } }] }),
+        line({ choices: [{ finish_reason: 'tool_calls', delta: {} }] }),
+        'data: [DONE]', ''
+      ].join('\n');
+      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'web_search' } }] });
+    A.eq(evs.filter(e => e.type === 'text').length, 0, 'serialized local tool JSON never leaks as assistant prose');
+    A.eq(evs.find(e => e.type === 'tool_start').name, 'web_search', 'serialized local tool JSON becomes a real tool call');
+    A.eq(evs.filter(e => e.type === 'tool_args').map(e => e.chunk).join(''), '{"query":"local restaurants"}', 'serialized parameters become tool arguments');
+  }
+
   // parallel tool calls WITHOUT .index (non-streamed choice.message; some streaming servers too, e.g.
   // Mistral) must not collapse into one corrupt call — each id gets its own slot.
   {
