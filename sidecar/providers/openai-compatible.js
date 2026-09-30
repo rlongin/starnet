@@ -288,11 +288,39 @@
         if (!s || s.charAt(0) !== '{' || s.charAt(s.length - 1) !== '}') return null;
         let obj; try { obj = JSON.parse(s); } catch (_) { return null; }
         if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-        const name = String(obj.name || obj.tool || obj.function || obj.function_name || '').trim();
-        const args = obj.parameters != null ? obj.parameters : (obj.arguments != null ? obj.arguments : obj.args);
+
+        // Local models do not all serialize fallback tool calls the same way. Accept the OpenAI-ish
+        // wrappers plus Ollama/LiteLLM's nested {function:{name,arguments}} form. A parameters-only
+        // object is NOT a tool call: without a tool name there is nothing safe to execute.
+        const fnObj = obj.function && typeof obj.function === 'object' && !Array.isArray(obj.function) ? obj.function : null;
+        const name = String(
+          obj.name || obj.tool || obj.function_name ||
+          (typeof obj.function === 'string' ? obj.function : '') ||
+          (fnObj && fnObj.name) || ''
+        ).trim();
+        const args = obj.parameters != null ? obj.parameters
+          : (obj.arguments != null ? obj.arguments
+          : (obj.args != null ? obj.args
+          : (fnObj && (fnObj.arguments != null ? fnObj.arguments : fnObj.parameters))));
         if (!name || args == null || (typeof args !== 'object' && typeof args !== 'string')) return null;
         const argText = typeof args === 'string' ? args : JSON.stringify(args);
         return { name, arguments: argText };
+      }
+
+      // Never print an orphaned local-model tool payload as conversational prose. Some small Ollama
+      // models emit only {"parameters":{...}} after being shown tool schemas. There is no trustworthy
+      // function name to dispatch, so execution must remain fail-closed; the internal payload is simply
+      // withheld from COMMS instead of being spoken/displayed as an answer.
+      function orphanToolPayload(raw) {
+        const s = String(raw == null ? '' : raw).trim();
+        if (!s || s.charAt(0) !== '{' || s.charAt(s.length - 1) !== '}') return false;
+        let obj; try { obj = JSON.parse(s); } catch (_) { return false; }
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+        const hasArgs = obj.parameters != null || obj.arguments != null || obj.args != null;
+        const hasName = !!String(obj.name || obj.tool || obj.function_name ||
+          (typeof obj.function === 'string' ? obj.function : '') ||
+          (obj.function && typeof obj.function === 'object' && obj.function.name) || '').trim();
+        return hasArgs && !hasName;
       }
 
       function* emitFrom(j) {
@@ -310,7 +338,7 @@
           yield { type: 'tool_start', index: idx, id: 'call_' + idx, name: contentCall.name };
           if (contentCall.arguments) yield { type: 'tool_args', index: idx, chunk: contentCall.arguments };
         } else if (typeof d.content === 'string' && d.content) {
-          yield { type: 'text', delta: d.content };
+          if (!orphanToolPayload(d.content)) yield { type: 'text', delta: d.content };
         }
         if (Array.isArray(d.tool_calls)) {
           for (const tc of d.tool_calls) {
