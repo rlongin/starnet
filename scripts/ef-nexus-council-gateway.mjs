@@ -159,6 +159,7 @@ function proxyHttp(req, res, station) {
   const upstream = http.request({
     host,
     port: station.port,
+    timeout: 0,
     method: req.method,
     path: proxyPath(req),
     headers,
@@ -170,8 +171,12 @@ function proxyHttp(req, res, station) {
     delete responseHeaders["cross-origin-opener-policy"];
     delete responseHeaders["cross-origin-embedder-policy"];
     // Preserve the gateway cookie established on the first authenticated page.\n    // Without this, the HTML loads via ef_session but subsequent CSS/JS/image requests lose the session.\n    const gatewayCookie = res.getHeader("set-cookie");\n    if (gatewayCookie) {\n      const upstreamCookies = responseHeaders["set-cookie"];\n      responseHeaders["set-cookie"] = [\n        ...(Array.isArray(upstreamCookies) ? upstreamCookies : upstreamCookies ? [upstreamCookies] : []),\n        ...(Array.isArray(gatewayCookie) ? gatewayCookie : [String(gatewayCookie)]),\n      ];\n    }\n    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
+    // Agent replies are long-lived streamed responses. Keep the proxy connection open
+    // until StarNet itself ends the stream; never let the gateway impose a response timeout.
+    req.socket?.setTimeout?.(0);
     upstreamRes.pipe(res);
   });
+  upstream.setTimeout(0);
   upstream.on("error", error => {
     if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain", "cache-control": "no-store" });
     res.end("Council runtime unavailable: " + error.message);
@@ -230,11 +235,15 @@ server.on("upgrade", (req, socket, head) => {
   const upstream = http.request({
     host,
     port: session.station.port,
+    timeout: 0,
     method: req.method,
     path: proxyPath(req),
     headers: { ...req.headers, host: `${host}:${session.station.port}` },
   });
+  upstream.setTimeout(0);
   upstream.on("upgrade", (upstreamRes, upstreamSocket, upstreamHead) => {
+    socket.setTimeout(0);
+    upstreamSocket.setTimeout(0);
     let response = `HTTP/1.1 ${upstreamRes.statusCode || 101} ${upstreamRes.statusMessage || "Switching Protocols"}\\r\\n`;
     for (const [key, value] of Object.entries(upstreamRes.headers)) {
       if (Array.isArray(value)) for (const item of value) response += `${key}: ${item}\\r\\n`;
