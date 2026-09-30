@@ -280,13 +280,38 @@
         if (data === '[DONE]') return { done: true };
         try { return { json: JSON.parse(data) }; } catch (_) { return null; }
       }
+      // Some Ollama/LiteLLM combinations serialize a tool request into delta.content instead of
+      // OpenAI's delta.tool_calls field. Do not leak that internal JSON into COMMS. Recover the common
+      // {"name":...,"parameters":...} / {"function":...,"arguments":...} shapes as a real tool event.
+      function contentToolCall(raw) {
+        const s = String(raw == null ? '' : raw).trim();
+        if (!s || s.charAt(0) !== '{' || s.charAt(s.length - 1) !== '}') return null;
+        let obj; try { obj = JSON.parse(s); } catch (_) { return null; }
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+        const name = String(obj.name || obj.tool || obj.function || obj.function_name || '').trim();
+        const args = obj.parameters != null ? obj.parameters : (obj.arguments != null ? obj.arguments : obj.args);
+        if (!name || args == null || (typeof args !== 'object' && typeof args !== 'string')) return null;
+        const argText = typeof args === 'string' ? args : JSON.stringify(args);
+        return { name, arguments: argText };
+      }
+
       function* emitFrom(j) {
         if (j.error) throw new Error((j.error && (j.error.message || j.error.code)) || 'provider stream error');
         if (j.usage) yield { type: 'usage', usage: j.usage };
         const choice = j.choices && j.choices[0];
         if (!choice) return;
         const d = choice.delta || choice.message || {};
-        if (typeof d.content === 'string' && d.content) yield { type: 'text', delta: d.content };
+        const contentCall = (!Array.isArray(d.tool_calls) || !d.tool_calls.length) && typeof d.content === 'string'
+          ? contentToolCall(d.content) : null;
+        if (contentCall) {
+          const idx = nextIdx++;
+          started[idx] = true;
+          argsAcc[idx] = contentCall.arguments;
+          yield { type: 'tool_start', index: idx, id: 'call_' + idx, name: contentCall.name };
+          if (contentCall.arguments) yield { type: 'tool_args', index: idx, chunk: contentCall.arguments };
+        } else if (typeof d.content === 'string' && d.content) {
+          yield { type: 'text', delta: d.content };
+        }
         if (Array.isArray(d.tool_calls)) {
           for (const tc of d.tool_calls) {
             const idx = callIndex(tc);
