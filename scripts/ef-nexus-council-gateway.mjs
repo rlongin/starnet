@@ -170,7 +170,30 @@ function proxyHttp(req, res, station) {
     delete responseHeaders["x-frame-options"];
     delete responseHeaders["cross-origin-opener-policy"];
     delete responseHeaders["cross-origin-embedder-policy"];
-    // Preserve the gateway cookie established on the first authenticated page.\n    // Without this, the HTML loads via ef_session but subsequent CSS/JS/image requests lose the session.\n    const gatewayCookie = res.getHeader("set-cookie");\n    if (gatewayCookie) {\n      const upstreamCookies = responseHeaders["set-cookie"];\n      responseHeaders["set-cookie"] = [\n        ...(Array.isArray(upstreamCookies) ? upstreamCookies : upstreamCookies ? [upstreamCookies] : []),\n        ...(Array.isArray(gatewayCookie) ? gatewayCookie : [String(gatewayCookie)]),\n      ];\n    }\n    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
+    // Preserve the gateway cookie established on the first authenticated page.\n    // Without this, the HTML loads via ef_session but subsequent CSS/JS/image requests lose the session.\n    const gatewayCookie = res.getHeader("set-cookie");\n    if (gatewayCookie) {\n      const upstreamCookies = responseHeaders["set-cookie"];\n      responseHeaders["set-cookie"] = [\n        ...(Array.isArray(upstreamCookies) ? upstreamCookies : upstreamCookies ? [upstreamCookies] : []),\n        ...(Array.isArray(gatewayCookie) ? gatewayCookie : [String(gatewayCookie)]),\n      ];\n    }\n    const contentType = String(upstreamRes.headers["content-type"] || "").toLowerCase();
+    const isSse = contentType.includes("text/event-stream");
+    if (isSse) {
+      // Cloudflare -> gateway -> StarNet must remain a true SSE stream. Do not forward
+      // hop-by-hop framing from the loopback response; let this server create its own
+      // chunked stream and flush headers immediately so EventSource reaches OPEN.
+      delete responseHeaders["connection"];
+      delete responseHeaders["transfer-encoding"];
+      delete responseHeaders["content-length"];
+      responseHeaders["content-type"] = upstreamRes.headers["content-type"] || "text/event-stream; charset=utf-8";
+      responseHeaders["cache-control"] = "no-cache, no-store, no-transform";
+      responseHeaders["x-accel-buffering"] = "no";
+      res.writeHead(upstreamRes.statusCode || 200, responseHeaders);
+      res.flushHeaders?.();
+      req.socket?.setTimeout?.(0);
+      req.socket?.setKeepAlive?.(true, 15000);
+      upstreamRes.socket?.setTimeout?.(0);
+      upstreamRes.socket?.setKeepAlive?.(true, 15000);
+      upstreamRes.on("data", chunk => { if (!res.destroyed) res.write(chunk); });
+      upstreamRes.on("end", () => { if (!res.destroyed) res.end(); });
+      upstreamRes.on("error", () => { if (!res.destroyed) res.end(); });
+      return;
+    }
+    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
     // Agent replies are long-lived streamed responses. Keep the proxy connection open
     // until StarNet itself ends the stream; never let the gateway impose a response timeout.
     req.socket?.setTimeout?.(0);
