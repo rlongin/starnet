@@ -169,7 +169,7 @@ function proxyHttp(req, res, station) {
     delete responseHeaders["x-frame-options"];
     delete responseHeaders["cross-origin-opener-policy"];
     delete responseHeaders["cross-origin-embedder-policy"];
-    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
+    // Preserve the gateway cookie established on the first authenticated page.\n    // Without this, the HTML loads via ef_session but subsequent CSS/JS/image requests lose the session.\n    const gatewayCookie = res.getHeader("set-cookie");\n    if (gatewayCookie) {\n      const upstreamCookies = responseHeaders["set-cookie"];\n      responseHeaders["set-cookie"] = [\n        ...(Array.isArray(upstreamCookies) ? upstreamCookies : upstreamCookies ? [upstreamCookies] : []),\n        ...(Array.isArray(gatewayCookie) ? gatewayCookie : [String(gatewayCookie)]),\n      ];\n    }\n    res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
     upstreamRes.pipe(res);
   });
   upstream.on("error", error => {
