@@ -120,6 +120,32 @@ module.exports = (async () => {
     A.eq(evs.filter(e => e.type === 'tool_args').map(e => e.chunk).join(''), '{"query":"local restaurants"}', 'serialized parameters become tool arguments');
   }
 
+  // Local nested fallback: Ollama/LiteLLM may wrap the function descriptor inside content.
+  {
+    const fetchImpl = async () => new Response([
+      line({ choices: [{ delta: { content: '{"function":{"name":"web_search","arguments":{"query":"local restaurants"}}}' } }] }),
+      line({ choices: [{ finish_reason: 'tool_calls', delta: {} }] }),
+      'data: [DONE]', ''
+    ].join('\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'web_search' } }] });
+    A.eq(evs.filter(e => e.type === 'text').length, 0, 'nested local tool JSON never leaks as prose');
+    A.eq(evs.find(e => e.type === 'tool_start').name, 'web_search', 'nested function wrapper becomes a tool call');
+  }
+
+  // A parameters-only payload has no trustworthy tool identity. It must never be shown or spoken as the answer.
+  {
+    const fetchImpl = async () => new Response([
+      line({ choices: [{ delta: { content: '{"parameters":{"query":"a concise 3-point growth strategy for EF Ventures membership"}}' } }] }),
+      line({ choices: [{ finish_reason: 'stop', delta: {} }] }),
+      'data: [DONE]', ''
+    ].join('\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [] });
+    A.eq(evs.filter(e => e.type === 'text').length, 0, 'orphan parameters payload is withheld from COMMS');
+    A.eq(evs.filter(e => e.type === 'tool_start').length, 0, 'orphan payload is not guessed into a tool execution');
+  }
+
   // parallel tool calls WITHOUT .index (non-streamed choice.message; some streaming servers too, e.g.
   // Mistral) must not collapse into one corrupt call — each id gets its own slot.
   {
