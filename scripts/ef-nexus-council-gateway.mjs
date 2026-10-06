@@ -17,6 +17,9 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +28,7 @@ const host = "127.0.0.1";
 const gatewayPort = Number(process.env.EF_COUNCIL_GATEWAY_PORT || 8799);
 const firstMemberPort = Number(process.env.EF_COUNCIL_MEMBER_PORT_START || 8801);
 const secret = String(process.env.EF_COUNCIL_LAUNCH_SECRET || "").trim();
+const recoverySecret = String(process.env.EF_AI_RECOVERY_SECRET || "").trim();
 const defaultStationPort = Number(process.env.EF_COUNCIL_EXISTING_STATION_PORT || 0);
 const defaultMember = String(process.env.EF_COUNCIL_EXISTING_STATION_MEMBER || "").trim();
 const maxTicketAgeMs = 2 * 60 * 1000;
@@ -210,6 +214,31 @@ function proxyHttp(req, res, station) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
+    if (url.pathname === "/ef-ai/status" || url.pathname === "/ef-ai/repair") {
+      if (recoverySecret.length < 24 || req.headers.authorization !== `Bearer ${recoverySecret}`) {
+        res.writeHead(403, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ ok: false, error: "forbidden" }));
+        return;
+      }
+      if (req.method !== "POST") {
+        res.writeHead(405, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+        return;
+      }
+      const apply = url.pathname === "/ef-ai/repair";
+      const script = path.join(root, "scripts", "ef-ai-recovery.ps1");
+      try {
+        const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...(apply ? ["-Apply"] : [])];
+        const { stdout } = await execFileAsync("powershell.exe", args, { cwd: root, windowsHide: true, timeout: 120000, maxBuffer: 1024 * 1024 });
+        const report = JSON.parse(stdout.trim());
+        res.writeHead(report.overall ? 200 : 503, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify(report));
+      } catch (error) {
+        res.writeHead(500, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "recovery failed" }));
+      }
+      return;
+    }
     if (url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify({ ok: true }));
