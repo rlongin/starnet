@@ -38,17 +38,24 @@ jobs:
           node test/ef-member-recovery.http.test.js
           node test/workspace-lineage.http.test.js
           node test/casual-response-safety.e2e.test.js
+          node test/tool-projection.e2e.test.js
           node test/station-recovery.test.js
       - name: Windows PowerShell syntax and encrypted-key compatibility
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $tokens = $null; $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ef/repair-agent/candidate/start-recovery-gateway.ps1'), [ref]$tokens, [ref]$errors)
-          if ($errors.Count) { throw ($errors | Out-String) }
+          foreach ($file in Get-ChildItem 'ef/repair-agent/candidate' -Filter '*.ps1') {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
           $secure = ConvertTo-SecureString 'fixture-only-dpapi-key-32-characters' -AsPlainText -Force
           $encrypted = $secure | ConvertFrom-SecureString
           $restored = $encrypted | ConvertTo-SecureString
           if (([pscredential]::new('test', $restored)).GetNetworkCredential().Password -ne 'fixture-only-dpapi-key-32-characters') { throw 'DPAPI round trip failed' }
+      - name: Windows supervisor crash and hang acceptance
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./ef/repair-agent/tests/windows-supervisor.test.ps1
       - name: Check official pinned local-agent entry
         run: npm view @openai/codex@0.160.1 version

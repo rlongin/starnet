@@ -212,8 +212,11 @@ async function createStation(member) {
   }
   const workspaceRoot = path.join(workspaceBase, namespace);
   fs.mkdirSync(workspaceRoot, { recursive: true });
+  const apiToken = crypto.randomBytes(32).toString("hex");
   const env = {
     ...process.env,
+    STARNET_API_TOKEN: apiToken,
+    SKYNET_API_TOKEN: apiToken,
     SKYNET_WORKSPACES: workspaceRoot,
     STARNET_WORKSPACES: workspaceRoot,
     SKYNET_PORT: String(port),
@@ -245,7 +248,7 @@ async function createStation(member) {
   child.unref();
   let childError = null;
   child.once("error", error => { childError = error; });
-  const station = { port, child, namespace, workspaceRoot, member };
+  const station = { port, child, namespace, workspaceRoot, member, apiToken };
   stations.set(namespace, station);
   child.once("exit", () => { if (stations.get(namespace)?.child === child) stations.delete(namespace); });
 
@@ -254,7 +257,7 @@ async function createStation(member) {
     if (childError || child.exitCode !== null) break;
     if (await portReady(port)) {
       const records = readRegistry();
-      records[namespace] = { pid: child.pid, port, workspaceRoot, entry: stationEntry, member };
+      records[namespace] = { pid: child.pid, port, workspaceRoot, entry: stationEntry, member, apiToken };
       try { writeRegistry(records); } catch (error) { child.kill(); stations.delete(namespace); throw error; }
       return station;
     }
@@ -284,9 +287,10 @@ function sessionFor(req) {
   }
   return session;
 }
-function proxyPath(req) {
+function proxyPath(req, station) {
   const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
   url.searchParams.delete(sessionQuery);
+  if (station?.apiToken && url.searchParams.has("token") && ["/api/file", "/api/save", "/api/channels/events"].includes(url.pathname)) url.searchParams.set("token", station.apiToken);
   return url.pathname + (url.searchParams.size ? `?${url.searchParams.toString()}` : "");
 }
 function ensureSessionCookie(req, res, session) {
@@ -326,6 +330,7 @@ async function proxyHttp(req, res, station) {
   }
   const headers = { ...req.headers, host: `${host}:${station.port}` };
   if (localBody) { headers['content-length'] = String(localBody.length); delete headers['transfer-encoding']; }
+  if (station.apiToken) { headers["x-starnet-token"] = station.apiToken; delete headers["x-skynet-token"]; }
   delete headers.cookie;
   delete headers.authorization;
   delete headers.referer;
@@ -339,7 +344,7 @@ async function proxyHttp(req, res, station) {
     port: station.port,
     timeout: 0,
     method: req.method,
-    path: proxyPath(req),
+    path: proxyPath(req, station),
     headers,
   }, upstreamRes => {
     const responseHeaders = { ...upstreamRes.headers };
@@ -401,6 +406,22 @@ async function proxyHttp(req, res, station) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${host}:${gatewayPort}`);
+    if (url.pathname === '/council/recover') {
+      if (recoverySecret.length < 24 || req.headers.authorization !== `Bearer ${recoverySecret}`) {
+        res.writeHead(403); res.end('forbidden'); return;
+      }
+      if (req.method !== 'POST') { res.writeHead(405); res.end('method not allowed'); return; }
+      const records = readRegistry();
+      const members = new Set([...sessions.values()].map(s => s.member));
+      for (const record of Object.values(records)) if (record.member && record.workspaceRoot === path.join(workspaceBase, namespaceFor(record.member))) members.add(record.member);
+      let failed = 0;
+      for (const member of members) {
+        try { await stationFor(member); } catch { failed++; }
+      }
+      res.writeHead(200, {'content-type':'application/json', 'cache-control':'no-store'});
+      res.end(JSON.stringify({ok:failed === 0, responding:members.size-failed, pending:failed, actionsReplayed:false}));
+      return;
+    }
     if (url.pathname === "/ef-ai/status" || url.pathname === "/ef-ai/repair") {
       if (recoverySecret.length < 24 || req.headers.authorization !== `Bearer ${recoverySecret}`) {
         res.writeHead(403, { "content-type": "application/json", "cache-control": "no-store" });
@@ -483,9 +504,10 @@ server.on("upgrade", (req, socket, head) => {
     port: session.station.port,
     timeout: 0,
     method: req.method,
-    path: proxyPath(req),
+    path: proxyPath(req, session.station),
     headers: (() => {
       const headers = { ...req.headers, host: `${host}:${session.station.port}`, origin: `http://${host}:${session.station.port}` };
+      if (session.station.apiToken) { headers["x-starnet-token"] = session.station.apiToken; delete headers["x-skynet-token"]; }
       delete headers.cookie; delete headers.authorization; delete headers.referer;
       return headers;
     })(),

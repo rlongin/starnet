@@ -15,7 +15,11 @@ const memberB = '22222222-2222-4222-8222-222222222222';
 const station = `
 const http=require('node:http'), crypto=require('node:crypto');
 require('node:fs').appendFileSync(process.env.EF_COUNCIL_TEST_PID_FILE,process.pid+'\\n');
+let hanging=false;
 const server=http.createServer((req,res)=>{
+ if(req.url==='/hang'){hanging=true;res.end('hanging');return;}
+ if(hanging)return;
+ if(req.url==='/api/protected'){res.statusCode=req.headers['x-starnet-token']===process.env.STARNET_API_TOKEN?200:403;res.end('protected');return;}
  if(req.url==='/api/run'){let body='';req.on('data',c=>body+=c);req.on('end',()=>{res.setHeader('content-type','application/json');res.end(body);});return;}
  if(req.url==='/inspect'){res.setHeader('content-type','application/json');res.end(JSON.stringify({
   pid:process.pid, workspace:process.env.SKYNET_WORKSPACES, secret:!!process.env.EF_COUNCIL_LAUNCH_SECRET,
@@ -123,4 +127,23 @@ test('hung child is replaced after grace without changing its workspace or sessi
   const after=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
   assert.notEqual(after.pid,before.pid);assert.equal(after.workspace,before.workspace);
  } finally {try{process.kill(before.pid,'SIGCONT');}catch{}}
+});
+
+
+test('browser keeps authenticated API access after a member process crash',async t=>{
+ const f=await fixture(t);const s=await f.launch();
+ const before=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
+ process.kill(before.pid,'SIGKILL');await new Promise(r=>setTimeout(r,200));
+ const r=await fetch(f.base+'/api/protected',{headers:{cookie:s.cookie,'x-starnet-token':'old-browser-token'}});
+ assert.equal(r.status,200,'session supplies the restarted member API token');
+ assert.equal((await fetch(f.base+'/api/protected')).status,401);
+});
+test('live process with a stalled HTTP server recovers on Windows and Linux',async t=>{
+ const f=await fixture(t,{hangGraceMs:1000});const s=await f.launch();
+ const before=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
+ await fetch(f.base+'/hang',{headers:{cookie:s.cookie}});
+ assert.equal((await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).status,401);
+ await new Promise(r=>setTimeout(r,1100));
+ const after=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
+ assert.notEqual(after.pid,before.pid);assert.equal(after.workspace,before.workspace);
 });
