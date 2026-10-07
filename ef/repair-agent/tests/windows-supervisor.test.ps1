@@ -72,7 +72,13 @@ try {
   Start-ScheduledTask -TaskName $taskName
   Start-Sleep -Seconds 3
   if((Get-ScheduledTaskInfo -TaskName $taskName).LastTaskResult -ne 0){throw 'Scheduled action did not complete its singleton path'}
-  Write-Output 'PASS: Windows DPAPI preflight, singleton, gateway crash, hung gateway and manual recovery.'
+  $beforeTask=Ready
+  Stop-Process -Id $supervisor.Id
+  $supervisor.WaitForExit()
+  Start-ScheduledTask -TaskName $taskName
+  [void](Ready -differentPid $beforeTask)
+  if((Get-ScheduledTask -TaskName $taskName).State -ne 'Running'){throw 'Task did not retain the gateway supervisor'}
+  Write-Output 'PASS: Windows DPAPI, singleton, gateway crash/hang, supervisor crash, manual recovery, startup registration and Task Scheduler gateway launch.'
 } finally {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
