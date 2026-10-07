@@ -62,3 +62,20 @@ jobs:
           npm install --prefix .codex-cli-check --no-audit --no-fund @openai/codex@0.160.1
           node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --version
           node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --help
+
+  package:
+    needs: acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ef/repair-agent
+      - name: Build verified local-agent download
+        run: python3 ef/repair-agent/build-bundle.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Council-Local-Repair-Agent
+          path: Council-Local-Repair-Agent.zip
+          if-no-files-found: error
+          retention-days: 90
