@@ -39,7 +39,12 @@ try {
   $shortcut.Description = 'EF Ventures Council recovery'
   $shortcut.Save()
   $saved = Get-ScheduledTask -TaskName $taskName
-  if ($saved.Actions.Execute -ne $action.Execute -or $saved.Actions.Arguments -ne $action.Arguments -or $saved.Principal.UserId -notin @($identity.Name, $identity.User.Value)) { throw 'Startup read-back mismatch.' }
+  $savedSid = [string]$saved.Principal.UserId
+  if (!$savedSid.StartsWith('S-1-')) {
+    $savedSid = ([Security.Principal.NTAccount]::new($savedSid)).Translate([Security.Principal.SecurityIdentifier]).Value
+  }
+  if ($saved.Actions.Execute -ne $action.Execute -or $saved.Actions.Arguments -ne $action.Arguments) { throw 'Startup action read-back mismatch.' }
+  if ($savedSid -ne $identity.User.Value) { throw 'Startup account read-back mismatch.' }
   Write-Output 'Council sign-in task and Recover Council shortcut saved. Actual sign-in/reboot acceptance remains required.'
 } catch {
   Copy-Item (Join-Path $backup 'council-config.json') $configPath -Force
