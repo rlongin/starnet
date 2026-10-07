@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $config = Get-Content (Join-Path $root 'council-config.json') -Raw | ConvertFrom-Json
 if ($config.WindowsSid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'Use the Windows account that owns Council.' }
-$gatewayPath = Join-Path $root 'ef-recovery-gateway.mjs'
+. (Join-Path $root 'Council-ProcessOwner.ps1')
 function Gateway-Ready {
   try {
     $h = Invoke-RestMethod "http://127.0.0.1:$($config.GatewayPort)/health" -TimeoutSec 3
@@ -11,16 +11,13 @@ function Gateway-Ready {
 }
 if (!(Gateway-Ready)) {
   foreach ($listener in @(Get-NetTCPConnection -State Listen -LocalPort $config.GatewayPort -ErrorAction SilentlyContinue)) {
-    $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
-    if (!$owner -or $owner.ExecutablePath -ine $config.NodeExe -or !$owner.CommandLine -or !$owner.CommandLine.Contains($gatewayPath)) {
-      throw 'Another application owns the Council port. It was left untouched.'
-    }
-    Stop-Process -Id $owner.ProcessId -ErrorAction Stop
+    $owned = Get-OwnedCouncilGateway $listener.OwningProcess
+    try { $owned.Kill(); if (!$owned.WaitForExit(5000)) { throw 'Owned gateway did not exit.' } } finally { $owned.Dispose() }
   }
 }
 if ($config.StartupTask -and (Get-ScheduledTask -TaskName $config.StartupTask -ErrorAction SilentlyContinue)) {
   Start-ScheduledTask -TaskName $config.StartupTask
-} elseif (!(Gateway-Ready)) {
+} else {
   Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', ('"' + (Join-Path $root 'start-recovery-gateway.ps1') + '"'))
 }
 $secure = (Get-Content (Join-Path $root 'recovery-key.dpapi') -Raw).Trim() | ConvertTo-SecureString

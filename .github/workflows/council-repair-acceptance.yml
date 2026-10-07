@@ -58,4 +58,7 @@ jobs:
         shell: powershell
         run: ./ef/repair-agent/tests/windows-supervisor.test.ps1
       - name: Check official pinned local-agent entry
-        run: npm view @openai/codex@0.160.1 version
+        run: |
+          npm install --prefix .codex-cli-check --no-audit --no-fund @openai/codex@0.160.1
+          node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --version
+          node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --help

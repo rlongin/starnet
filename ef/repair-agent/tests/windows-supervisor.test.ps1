@@ -7,6 +7,8 @@ Set-Content (Join-Path $root 'station\sidecar\index.js') '// fixture'
 $candidate = Join-Path (Split-Path $PSScriptRoot) 'candidate'
 Copy-Item (Join-Path $candidate 'start-recovery-gateway.ps1') $root
 Copy-Item (Join-Path $candidate 'Recover-Council.ps1') $root
+Copy-Item (Join-Path $candidate 'Council-ProcessOwner.ps1') $root
+Copy-Item (Join-Path $candidate 'Register-Council-Startup.ps1') $root
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
 $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
 foreach ($name in @('council-launch-key.dpapi','recovery-key.dpapi')) {
@@ -38,6 +40,9 @@ function Ready([int]$differentPid=0,[int]$seconds=35) {
   throw 'Fixture did not recover in time.'
 }
 $supervisor=$null
+$taskName='EF Council Gateway'
+$shortcut=Join-Path ([Environment]::GetFolderPath('Desktop')) 'Recover Council.lnk'
+if ((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or (Test-Path $shortcut)) { throw 'Fixture refuses existing startup artifacts.' }
 try {
   $launcher=Join-Path $root 'start-recovery-gateway.ps1'
   & powershell.exe -NoProfile -File $launcher -ValidateOnly
@@ -54,8 +59,24 @@ try {
   if($afterHang -eq $replacement){throw 'Hung gateway was not replaced'}
   & powershell.exe -NoProfile -File (Join-Path $root 'Recover-Council.ps1')
   if($LASTEXITCODE -ne 0){throw 'Manual recovery action failed'}
+  # Kill the supervisor itself; the next launch must reconcile its orphan.
+  Stop-Process -Id $supervisor.Id
+  $supervisor.WaitForExit()
+  $supervisor=Start-Process powershell.exe -PassThru -ArgumentList @('-NoProfile','-File',('"'+$launcher+'"'))
+  [void](Ready -differentPid $afterHang)
+  & powershell.exe -NoProfile -File (Join-Path $root 'Register-Council-Startup.ps1')
+  if($LASTEXITCODE -ne 0){throw 'Startup registration failed'}
+  $registered=Get-ScheduledTask -TaskName $taskName
+  if($registered.Settings.ExecutionTimeLimit -ne 'PT0S' -or $registered.Settings.MultipleInstances -ne 'IgnoreNew'){throw 'Startup lifetime or singleton settings wrong'}
+  if(!(Test-Path $shortcut)){throw 'Recovery shortcut missing'}
+  Start-ScheduledTask -TaskName $taskName
+  Start-Sleep -Seconds 3
+  if((Get-ScheduledTaskInfo -TaskName $taskName).LastTaskResult -ne 0){throw 'Scheduled action did not complete its singleton path'}
   Write-Output 'PASS: Windows DPAPI preflight, singleton, gateway crash, hung gateway and manual recovery.'
 } finally {
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  Remove-Item $shortcut -ErrorAction SilentlyContinue
   if($supervisor){Stop-Process -Id $supervisor.Id -ErrorAction SilentlyContinue}
   $pidFile=Join-Path $root 'pids.txt'
   if(Test-Path $pidFile){foreach($testPid in Get-Content $pidFile){

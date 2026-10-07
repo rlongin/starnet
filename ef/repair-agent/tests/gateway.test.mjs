@@ -67,7 +67,7 @@ test('members receive distinct stable data directories; gateway credentials do n
 test('query or Referer cannot substitute for session cookie; foreign origin refused',async t=>{const f=await fixture(t);const a=await f.launch();const id=a.cookie.split('=')[1];assert.equal((await fetch(f.base+'/?ef_session='+id)).status,401);assert.equal((await fetch(f.base+'/',{headers:{referer:'https://council.efventures.app/?ef_session='+id}})).status,401);assert.equal((await fetch(f.base+'/',{headers:{cookie:a.cookie,origin:'https://foreign.test'}})).status,403);});
 test('upstream cookies and gateway renewal cookies coexist',async t=>{const f=await fixture(t);const a=await f.launch();const r=await fetch(f.base+'/cookie',{headers:{cookie:a.cookie}});assert.match(r.headers.get('set-cookie'),/station-test=1/);});
 test('SSE events are forwarded with no buffering cache headers',async t=>{const f=await fixture(t);const a=await f.launch();const r=await fetch(f.base+'/events',{headers:{cookie:a.cookie}});assert.match(r.headers.get('content-type'),/text\/event-stream/);assert.match(r.headers.get('cache-control'),/no-transform/);assert.equal(await r.text(),'data: first\n\ndata: last\n\n');});
-test('unauthenticated recovery endpoints are denied without executing repair',async t=>{const f=await fixture(t);for(const route of ['/ef-ai/status','/ef-ai/repair'])assert.equal((await fetch(f.base+route,{method:'POST'})).status,403);});
+test('unauthenticated recovery endpoints are denied without executing repair',async t=>{const f=await fixture(t);for(const route of ['/ef-ai/status','/ef-ai/repair','/council/recover'])assert.equal((await fetch(f.base+route,{method:'POST'})).status,403);});
 test('crashed gateway re-adopts its signed member station without a duplicate process',{skip: process.platform !== 'win32' && !fs.existsSync('/proc/'+process.pid+'/cmdline') ? 'Sandbox virtual process IDs cannot be verified through /proc; run on the target Windows PC' : false},async t=>{const f=await fixture(t);const a=await f.launch();const before=await(await fetch(f.base+'/inspect',{headers:{cookie:a.cookie}})).json();await f.crashRestart();const again=await f.launch();const after=await(await fetch(f.base+'/inspect',{headers:{cookie:again.cookie}})).json();assert.equal(after.pid,before.pid);assert.equal(after.workspace,before.workspace);assert.equal(fs.readFileSync(path.join(f.folder,'fixture-pids.txt'),'utf8').trim().split('\n').length,1,'gateway restart must not spawn a second station');});
 test('tampered station registry fails closed instead of adopting or overwriting it',async t=>{const f=await fixture(t);await f.launch();const filename=path.join(f.folder,'Recovery','council-stations.json');const saved=JSON.parse(fs.readFileSync(filename));saved.signature='0'.repeat(64);fs.writeFileSync(filename,JSON.stringify(saved));await f.crashRestart();const r=await fetch(f.base+'/launch?ticket='+f.ticket());assert.equal(r.status,401);assert.match(await r.text(),/registry cannot be verified/);});
 test('WebSocket handshake contains actual HTTP CRLF; unauthenticated handshake denied',async t=>{const f=await fixture(t);const a=await f.launch();async function handshake(cookie){return new Promise((resolve,reject)=>{const socket=net.connect(f.port,'127.0.0.1',()=>socket.write('GET /socket HTTP/1.1\r\nHost: council.efventures.app\r\nOrigin: https://council.efventures.app\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'+(cookie?'Cookie: '+cookie+'\r\n':'')+'\r\n'));socket.setTimeout(3000,()=>{socket.destroy();reject(Error('handshake timeout'));});socket.once('data',c=>{socket.destroy();resolve(c.toString());});socket.once('error',reject);});}assert.match(await handshake(a.cookie),/^HTTP\/1\.1 101[^\r]*\r\n/);assert.match(await handshake(''),/^HTTP\/1\.1 401[^\r]*\r\n/);});
@@ -146,4 +146,17 @@ test('live process with a stalled HTTP server recovers on Windows and Linux',asy
  await new Promise(r=>setTimeout(r,1100));
  const after=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
  assert.notEqual(after.pid,before.pid);assert.equal(after.workspace,before.workspace);
+});
+
+
+test('recovery shortcut restores saved members and never replays an action',async t=>{
+ const f=await fixture(t);const session=await f.launch();
+ const before=await(await fetch(f.base+'/inspect',{headers:{cookie:session.cookie}})).json();
+ const headers={authorization:'Bearer '+'test-only-recovery-key-'.repeat(2)};
+ assert.equal((await fetch(f.base+'/council/recover',{headers})).status,405);
+ process.kill(before.pid,'SIGKILL');await new Promise(r=>setTimeout(r,200));
+ const result=await(await fetch(f.base+'/council/recover',{method:'POST',headers})).json();
+ assert.deepEqual(result,{ok:true,responding:1,pending:0,actionsReplayed:false});
+ const after=await(await fetch(f.base+'/inspect',{headers:{cookie:session.cookie}})).json();
+ assert.equal(after.workspace,before.workspace);assert.notEqual(after.pid,before.pid);
 });

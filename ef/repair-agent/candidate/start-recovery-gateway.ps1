@@ -2,6 +2,7 @@ param([switch]$ValidateOnly)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $config = Get-Content (Join-Path $root 'council-config.json') -Raw | ConvertFrom-Json
+. (Join-Path $root 'Council-ProcessOwner.ps1')
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($config.WindowsSid -ne $identity) { throw 'Council must run under the Windows account that owns its encrypted keys.' }
 $gateway = Join-Path $root 'ef-recovery-gateway.mjs'
@@ -42,7 +43,11 @@ try {
   if (!$held) { Write-Output 'Council supervisor is already running.'; exit 0 }
   # Never adopt or kill an unknown gateway simply because it occupies this port.
   $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $config.GatewayPort -ErrorAction SilentlyContinue)
-  if ($listeners.Count) { throw 'A gateway is already listening. Recover Council must reconcile its exact owner before starting a replacement supervisor.' }
+  if ($listeners.Count) {
+    $owned = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Get-OwnedCouncilGateway $_ })
+    # A previous supervisor may have died while its exact child survived.
+    foreach ($orphan in $owned) { $orphan.Kill(); if (!$orphan.WaitForExit(5000)) { throw 'Owned orphan did not exit.' }; $orphan.Dispose() }
+  }
   $logs = Join-Path $root 'CouncilLogs'
   New-Item -ItemType Directory -Force -Path $logs | Out-Null
   $delay = 2
