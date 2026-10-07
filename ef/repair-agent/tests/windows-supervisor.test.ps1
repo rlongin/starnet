@@ -73,8 +73,14 @@ try {
   Start-Sleep -Seconds 3
   if((Get-ScheduledTaskInfo -TaskName $taskName).LastTaskResult -ne 0){throw 'Scheduled action did not complete its singleton path'}
   $beforeTask=Ready
-  Stop-Process -Id $supervisor.Id
-  $supervisor.WaitForExit()
+  # Recovery may have won the mutex and become the active supervisor. Stop the
+  # exact isolated fixture launchers, rather than assuming a stale process ID.
+  foreach($ownedSupervisor in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'") {
+    if($ownedSupervisor.CommandLine -and $ownedSupervisor.CommandLine.Contains($launcher)) {
+      Stop-Process -Id $ownedSupervisor.ProcessId -ErrorAction SilentlyContinue
+    }
+  }
+  Start-Sleep -Seconds 1
   Start-ScheduledTask -TaskName $taskName
   [void](Ready -differentPid $beforeTask)
   if((Get-ScheduledTask -TaskName $taskName).State -ne 'Running'){throw 'Task did not retain the gateway supervisor'}
@@ -83,7 +89,11 @@ try {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   Remove-Item $shortcut -ErrorAction SilentlyContinue
-  if($supervisor){Stop-Process -Id $supervisor.Id -ErrorAction SilentlyContinue}
+  foreach($ownedSupervisor in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'") {
+    if($ownedSupervisor.CommandLine -and $ownedSupervisor.CommandLine.Contains((Join-Path $root 'start-recovery-gateway.ps1'))) {
+      Stop-Process -Id $ownedSupervisor.ProcessId -ErrorAction SilentlyContinue
+    }
+  }
   $pidFile=Join-Path $root 'pids.txt'
   if(Test-Path $pidFile){foreach($testPid in Get-Content $pidFile){
     $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$testPid" -ErrorAction SilentlyContinue
