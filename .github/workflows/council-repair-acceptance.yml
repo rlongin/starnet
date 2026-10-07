@@ -76,6 +76,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Council-Local-Repair-Agent
-          path: Council-Local-Repair-Agent.zip
+          path: Council-Local-Repair-Agent/
           if-no-files-found: error
           retention-days: 90
