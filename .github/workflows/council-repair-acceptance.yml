@@ -1,0 +1,54 @@
+name: Council repair acceptance
+on:
+  push:
+    branches: [fix/council-local-repair-20261007]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sidecar
+            frontend
+            shared
+            test
+            ef/repair-agent
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install isolated test dependency
+        run: npm install --prefix .council-test-runtime --ignore-scripts --no-audit --no-fund ajv@8.20.0
+      - name: Candidate gateway and local-agent tests
+        run: node --test ef/repair-agent/tests/*.test.mjs
+      - name: Real runtime recovery and conversation persistence
+        shell: bash
+        run: |
+          git apply --check ef/repair-agent/candidate/member-recovery.patch
+          git apply ef/repair-agent/candidate/member-recovery.patch
+          export NODE_PATH="$PWD/.council-test-runtime/node_modules"
+          node test/ef-member-recovery.http.test.js
+          node test/workspace-lineage.http.test.js
+          node test/casual-response-safety.e2e.test.js
+          node test/station-recovery.test.js
+      - name: Windows PowerShell syntax and encrypted-key compatibility
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ef/repair-agent/candidate/start-recovery-gateway.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { throw ($errors | Out-String) }
+          $secure = ConvertTo-SecureString 'fixture-only-dpapi-key-32-characters' -AsPlainText -Force
+          $encrypted = $secure | ConvertFrom-SecureString
+          $restored = $encrypted | ConvertTo-SecureString
+          if (([pscredential]::new('test', $restored)).GetNetworkCredential().Password -ne 'fixture-only-dpapi-key-32-characters') { throw 'DPAPI round trip failed' }
+      - name: Check official pinned local-agent entry
+        run: npm view @openai/codex@0.160.1 version

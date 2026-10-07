@@ -1,0 +1,16 @@
+diff --git a/sidecar/index.js b/sidecar/index.js
+index 34e919f0..e6cd4f10 100644
+--- a/sidecar/index.js
++++ b/sidecar/index.js
+@@ -414,7 +414,10 @@ function defaultWorkspaces() {
+ const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : defaultWorkspaces();
+ const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
+ 
+-const RECOVERY_CANDIDATE_ROOTS = EF_STUDIO ? [] : workspaceCandidates({
++// A Nexus member must never discover/import the Windows host owner's legacy station.
++// Existing data in this member's own WORKSPACES remains available. Migrating the host
++// owner's station to a member requires an explicit, offline, owner-verified operation.
++const RECOVERY_CANDIDATE_ROOTS = (EF_STUDIO || process.env.EF_NEXUS_MEMBER_NAMESPACE) ? [] : workspaceCandidates({
+   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
+ }).concat([path.resolve(__dirname, 'workspaces'), path.resolve(__dirname, '..', 'workspaces')]);
+ 
