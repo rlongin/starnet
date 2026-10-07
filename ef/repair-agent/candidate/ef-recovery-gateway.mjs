@@ -142,14 +142,16 @@ async function stationFor(member) {
 }
 async function createStation(member) {
   const namespace = namespaceFor(member);
-  const existing = stations.get(namespace);
+  let existing = stations.get(namespace);
   const records = readRegistry();
   const saved = records[namespace];
   if (!existing && saved && saved.workspaceRoot === path.join(workspaceBase, namespace) &&
-      await recordOwnerAlive(saved) && await portReady(saved.port)) {
+      await recordOwnerAlive(saved)) {
     if (saved.member !== member) { saved.member = member; writeRegistry(records); }
     const adopted = { ...saved, namespace, child: null, adopted: true };
-    stations.set(namespace, adopted); return adopted;
+    stations.set(namespace, adopted);
+    existing = adopted;
+    if (await portReady(saved.port)) return adopted;
   }
   if (!existing && saved) {
     try { process.kill(saved.pid, 0); throw new Error("An existing member station needs inspection before starting another instance"); }

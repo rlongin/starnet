@@ -160,3 +160,19 @@ test('recovery shortcut restores saved members and never replays an action',asyn
  const after=await(await fetch(f.base+'/inspect',{headers:{cookie:session.cookie}})).json();
  assert.equal(after.workspace,before.workspace);assert.notEqual(after.pid,before.pid);
 });
+
+
+test('gateway restart can recover its signed but hung member without duplicating work',{skip:process.platform !== 'win32' && !fs.existsSync('/proc/'+process.pid+'/cmdline') ? 'Exact PID ownership unavailable in this sandbox' : false},async t=>{
+ const f=await fixture(t,{hangGraceMs:1000});const s=await f.launch();
+ const before=await(await fetch(f.base+'/inspect',{headers:{cookie:s.cookie}})).json();
+ await fetch(f.base+'/hang',{headers:{cookie:s.cookie}});await f.crashRestart();
+ const headers={authorization:'Bearer '+'test-only-recovery-key-'.repeat(2)};
+ const initial=await(await fetch(f.base+'/council/recover',{method:'POST',headers})).json();
+ assert.equal(initial.ok,false);
+ await new Promise(r=>setTimeout(r,1100));
+ const recovered=await(await fetch(f.base+'/council/recover',{method:'POST',headers})).json();
+ assert.equal(recovered.ok,true);assert.equal(recovered.actionsReplayed,false);
+ const fresh=await f.launch();const after=await(await fetch(f.base+'/inspect',{headers:{cookie:fresh.cookie}})).json();
+ assert.equal(after.workspace,before.workspace);assert.notEqual(after.pid,before.pid);
+ assert.equal(fs.readFileSync(path.join(f.folder,'fixture-pids.txt'),'utf8').trim().split('\n').length,2);
+});
