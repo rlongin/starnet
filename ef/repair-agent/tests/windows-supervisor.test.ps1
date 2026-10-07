@@ -39,6 +39,18 @@ function Ready([int]$differentPid=0,[int]$seconds=35) {
   }
   throw 'Fixture did not recover in time.'
 }
+function Stop-FixtureSupervisors {
+  $marker=Split-Path $root -Leaf
+  for($attempt=0;$attempt -lt 3;$attempt++) {
+    foreach($ownedSupervisor in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'") {
+      $command=[string]$ownedSupervisor.CommandLine
+      if($command.IndexOf($marker,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and $command.IndexOf('start-recovery-gateway.ps1',[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        Stop-Process -Id $ownedSupervisor.ProcessId -ErrorAction SilentlyContinue
+      }
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
 $supervisor=$null
 $taskName='EF Council Gateway'
 $shortcut=Join-Path ([Environment]::GetFolderPath('Desktop')) 'Recover Council.lnk'
@@ -75,27 +87,24 @@ try {
   $beforeTask=Ready
   # Recovery may have won the mutex and become the active supervisor. Stop the
   # exact isolated fixture launchers, rather than assuming a stale process ID.
-  foreach($ownedSupervisor in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'") {
-    if($ownedSupervisor.CommandLine -and $ownedSupervisor.CommandLine.Contains($launcher)) {
-      Stop-Process -Id $ownedSupervisor.ProcessId -ErrorAction SilentlyContinue
-    }
-  }
+  Stop-FixtureSupervisors
   Start-Sleep -Seconds 1
   # Test a clean scheduled launch; orphan adoption was exercised above.
   Stop-Process -Id $beforeTask -ErrorAction SilentlyContinue
   Start-ScheduledTask -TaskName $taskName
   [void](Ready -differentPid $beforeTask)
-  if((Get-ScheduledTask -TaskName $taskName).State -ne 'Running'){throw 'Task did not retain the gateway supervisor'}
+  $task=Get-ScheduledTask -TaskName $taskName
+  $taskInfo=Get-ScheduledTaskInfo -TaskName $taskName
+  $gatewayProcess=Get-CimInstance Win32_Process -Filter "ProcessId=$(Ready)"
+  $gatewayParent=Get-CimInstance Win32_Process -Filter "ProcessId=$($gatewayProcess.ParentProcessId)"
+  Write-Output "Scheduled task state=$($task.State), result=$($taskInfo.LastTaskResult), gateway=$($gatewayProcess.ProcessId), supervisor=$($gatewayProcess.ParentProcessId), supervisor command=$($gatewayParent.CommandLine)"
+  if($task.State -ne 'Running'){throw 'Task did not retain the gateway supervisor'}
   Write-Output 'PASS: Windows DPAPI, singleton, gateway crash/hang, supervisor crash, manual recovery, startup registration and Task Scheduler gateway launch.'
 } finally {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   Remove-Item $shortcut -ErrorAction SilentlyContinue
-  foreach($ownedSupervisor in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'") {
-    if($ownedSupervisor.CommandLine -and $ownedSupervisor.CommandLine.Contains((Join-Path $root 'start-recovery-gateway.ps1'))) {
-      Stop-Process -Id $ownedSupervisor.ProcessId -ErrorAction SilentlyContinue
-    }
-  }
+  Stop-FixtureSupervisors
   $pidFile=Join-Path $root 'pids.txt'
   if(Test-Path $pidFile){foreach($testPid in Get-Content $pidFile){
     $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$testPid" -ErrorAction SilentlyContinue
