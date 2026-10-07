@@ -81,6 +81,8 @@ try {
     }
   }
   Start-Sleep -Seconds 1
+  # Test a clean scheduled launch; orphan adoption was exercised above.
+  Stop-Process -Id $beforeTask -ErrorAction SilentlyContinue
   Start-ScheduledTask -TaskName $taskName
   [void](Ready -differentPid $beforeTask)
   if((Get-ScheduledTask -TaskName $taskName).State -ne 'Running'){throw 'Task did not retain the gateway supervisor'}

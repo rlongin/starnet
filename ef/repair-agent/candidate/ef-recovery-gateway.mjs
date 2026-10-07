@@ -68,7 +68,7 @@ async function recordOwnerAlive(record) {
     if (process.platform === "win32") {
       const quote = text => "'" + String(text).replaceAll("'", "''") + "'";
       const script = `$p=Get-CimInstance Win32_Process -Filter 'ProcessId=${record.pid}'; $port=Get-NetTCPConnection -State Listen -LocalPort ${record.port} -ErrorAction SilentlyContinue; if ($p -and $p.ExecutablePath -ieq ${quote(process.execPath)} -and $p.CommandLine.Contains(${quote(stationEntry)}) -and $p.CommandLine.Contains(${quote(marker)}) -and ($port.OwningProcess -contains ${record.pid})) { 'owner-confirmed' }`;
-      const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script,"utf16le").toString("base64")], { timeout: 8000, windowsHide: true });
+      const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script,"utf16le").toString("base64")], { timeout: 30000, windowsHide: true });
       return stdout.trim() === "owner-confirmed";
     }
     const args = fs.readFileSync(`/proc/${record.pid}/cmdline`, "utf8").split("\0");
