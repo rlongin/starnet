@@ -18,7 +18,7 @@ jobs:
         with:
           sparse-checkout: |
             sidecar
-            frontend
+            frontend/app
             shared
             test
             ef/repair-agent
