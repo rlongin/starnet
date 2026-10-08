@@ -32,15 +32,23 @@ test('restore is audit-only unless Apply is passed and backs up before writes', 
   assert.match(restore, /ProcessStartInfo/);
   assert.match(restore, /RedirectStandardError = \$true/);
   assert.match(restore, /\$psi\.Arguments = \$escaped -join ' '/);
+  assert.match(restore, /Ensure-CouncilSecrets/);
+  assert.match(restore, /Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"/);
+  assert.match(restore, /Invoke-SupervisorNow/);
+  assert.match(restore, /Invoke-VerificationWithRetry/);
+  assert.match(restore, /-NoExit -Quiet/);
   assert.doesNotMatch(restore, /& \$File @ArgumentList 2>&1/);
   assert.doesNotMatch(restore, /\.ArgumentList\.Add/);
   assert.doesNotMatch(restore, /\[string\[\]\]\$Args/);
+  assert.doesNotMatch(restore, /\(String \$a\)/);
 });
 
 test('verification covers local llm, nexus renn, and council ports', () => {
   for (const token of ['api/tags', 'api/generate', 'v1/chat/completions', '8798', '8799', '4000']) {
     assert.match(verify, new RegExp(token.replace(/[/.]/g, m => '\\' + m)));
   }
+  assert.match(verify, /\[switch\]\$NoExit/);
+  assert.match(verify, /if \(-not \$NoExit -and -not \$result\.ok\)/);
 });
 
 test('supervisor does not kill preserved known-good council', () => {
@@ -51,6 +59,10 @@ test('supervisor does not kill preserved known-good council', () => {
   assert.match(supervisor, /ollama\.exe/);
   assert.match(supervisor, /ef-nexus-council-gateway\.mjs/);
   assert.match(supervisor, /EF_COUNCIL_STATION_ROOT/);
+  assert.match(supervisor, /EF_COUNCIL_LAUNCH_SECRET/);
+  assert.match(supervisor, /EF_AI_RECOVERY_SECRET/);
+  assert.match(supervisor, /council-gateway\.err\.log/);
+  assert.match(supervisor, /\$Minutes/);
   assert.match(packagedGateway, /EF Ventures Nexus Council gateway/);
 });
 
