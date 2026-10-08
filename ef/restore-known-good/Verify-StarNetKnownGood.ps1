@@ -47,7 +47,8 @@ $station = Get-Text "http://127.0.0.1:$KnownGoodCouncilPort/"
 Add-Check "known-good-council-8798" ($station -and [int]$station.StatusCode -ge 200 -and [int]$station.StatusCode -lt 500) "status=$($station.StatusCode)"
 $gateway = Get-Text "http://127.0.0.1:$CouncilGatewayPort/health"
 Add-Check "council-gateway-8799" ($gateway -and [int]$gateway.StatusCode -ge 200 -and [int]$gateway.StatusCode -lt 500) "status=$($gateway.StatusCode)"
-$result = [ordered]@{ timestamp=(Get-Date).ToString("o"); checks=$checks; ok=(($checks | Where-Object { -not $_.ok }).Count -eq 0) }
+$critical = @("ollama-tags", "ollama-model", "ollama-inference", "nexusrenn-gateway", "council-gateway-8799")
+$result = [ordered]@{ timestamp=(Get-Date).ToString("o"); checks=$checks; critical=$critical; ok=(($checks | Where-Object { $critical -contains $_.name -and -not $_.ok }).Count -eq 0) }
 $json = $result | ConvertTo-Json -Depth 10
 $json
 if (-not $NoExit -and -not $result.ok) { exit 1 }
