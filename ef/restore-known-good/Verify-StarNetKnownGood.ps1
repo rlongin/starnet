@@ -6,6 +6,7 @@ param(
   [int]$KnownGoodCouncilPort = 8798,
   [int]$CouncilGatewayPort = 8799,
   [string]$NexusRennModelRoute = "nexus-primary",
+  [switch]$NoExit,
   [switch]$Quiet
 )
 $ErrorActionPreference = "Continue"
@@ -49,5 +50,4 @@ Add-Check "council-gateway-8799" ($gateway -and [int]$gateway.StatusCode -ge 200
 $result = [ordered]@{ timestamp=(Get-Date).ToString("o"); checks=$checks; ok=(($checks | Where-Object { -not $_.ok }).Count -eq 0) }
 $json = $result | ConvertTo-Json -Depth 10
 $json
-if (-not $result.ok) { exit 1 }
-
+if (-not $NoExit -and -not $result.ok) { exit 1 }
