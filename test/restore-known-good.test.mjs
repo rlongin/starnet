@@ -23,8 +23,9 @@ test('restore is audit-only unless Apply is passed and backs up before writes', 
   assert.match(restore, /Backup-File \$cfgPath/);
   assert.match(restore, /restore-package/);
   assert.match(restore, /Copy-Item -LiteralPath \(Join-Path \$PSScriptRoot/);
-  assert.match(restore, /Invoke-Checked git @\("stash", "push", "-u"/);
-  assert.match(restore, /Invoke-Checked git @\("switch", "-C"/);
+  assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("stash", "push", "-u"/);
+  assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("switch", "-C"/);
+  assert.doesNotMatch(restore, /\[string\[\]\]\$Args/);
 });
 
 test('verification covers local llm, nexus renn, and council ports', () => {
@@ -46,4 +47,3 @@ test('readme states operational boundaries', () => {
   assert.match(readme, /does not.*disable Bitdefender/);
   assert.match(readme, /does not.*change production Lovable publishing/);
 });
-

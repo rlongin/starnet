@@ -45,10 +45,10 @@ function Add-Action([string]$Name, [bool]$Ok, [string]$Detail = "", $Data = $nul
 function Ensure-Directory([string]$Path) {
   if ($Apply -and -not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
 }
-function Invoke-Checked([string]$File, [string[]]$Args, [string]$WorkingDirectory = $PWD.Path) {
+function Invoke-Checked([string]$File, [string[]]$ArgumentList, [string]$WorkingDirectory = $PWD.Path) {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $File
-  foreach ($a in $Args) { [void]$psi.ArgumentList.Add($a) }
+  foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add($a) }
   $psi.WorkingDirectory = $WorkingDirectory
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
@@ -57,7 +57,7 @@ function Invoke-Checked([string]$File, [string[]]$Args, [string]$WorkingDirector
   $p.WaitForExit()
   $stdout = $p.StandardOutput.ReadToEnd()
   $stderr = $p.StandardError.ReadToEnd()
-  if ($p.ExitCode -ne 0) { throw "$File $($Args -join ' ') failed with exit $($p.ExitCode): $stderr $stdout" }
+  if ($p.ExitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit $($p.ExitCode): $stderr $stdout" }
   return $stdout.Trim()
 }
 function Test-HttpJson([string]$Url, [int]$TimeoutSec = 4) {
@@ -93,14 +93,14 @@ function Write-TextFile([string]$Path, [string]$Content) {
 }
 function Restore-GitRepo([string]$Path, [string]$Branch, [string]$Commit, [string]$LocalBranch) {
   if (-not (Test-Path -LiteralPath (Join-Path $Path ".git"))) { Add-Action "git:$LocalBranch" $false "missing repo $Path"; return }
-  $head = Invoke-Checked git @("rev-parse", "HEAD") $Path
-  $dirty = Invoke-Checked git @("status", "--porcelain") $Path
+  $head = Invoke-Checked -File "git" -ArgumentList @("rev-parse", "HEAD") -WorkingDirectory $Path
+  $dirty = Invoke-Checked -File "git" -ArgumentList @("status", "--porcelain") -WorkingDirectory $Path
   if ($Apply -and $dirty) {
-    Invoke-Checked git @("stash", "push", "-u", "-m", "pre-known-good-restore-$stamp") $Path | Out-Null
+    Invoke-Checked -File "git" -ArgumentList @("stash", "push", "-u", "-m", "pre-known-good-restore-$stamp") -WorkingDirectory $Path | Out-Null
   }
   if ($Apply) {
-    Invoke-Checked git @("fetch", "--no-tags", "origin", "$Branch") $Path | Out-Null
-    Invoke-Checked git @("switch", "-C", $LocalBranch, $Commit) $Path | Out-Null
+    Invoke-Checked -File "git" -ArgumentList @("fetch", "--no-tags", "origin", $Branch) -WorkingDirectory $Path | Out-Null
+    Invoke-Checked -File "git" -ArgumentList @("switch", "-C", $LocalBranch, $Commit) -WorkingDirectory $Path | Out-Null
   }
   Add-Action "git:$LocalBranch" $true "current=$head target=$Commit dirty=$([bool]$dirty)"
 }
@@ -184,4 +184,3 @@ $json = $result | ConvertTo-Json -Depth 12
 if ($Apply) { Set-Content -LiteralPath (Join-Path $runRoot "restore-result.json") -Value $json -Encoding UTF8 }
 $json
 if (($actions | Where-Object { -not $_.ok }).Count -gt 0) { exit 1 }
-
