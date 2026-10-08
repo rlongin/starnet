@@ -15,6 +15,9 @@ New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $log = Join-Path $logRoot "supervisor.log"
 function Log($Message) { Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $Message" }
 function Test-Url($Url, $TimeoutSec = 5) { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop; return [int]$r.StatusCode } catch { return 0 } }
+function Test-JsonPost($Url, $Body, $TimeoutSec = 45) {
+  try { return Invoke-RestMethod -Method Post -Uri $Url -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
+}
 function New-Secret([int]$Bytes = 48) {
   $buffer = New-Object byte[] $Bytes
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
@@ -97,6 +100,36 @@ function Start-NexusGatewayIfPresent() {
   $container = try { docker ps -a --filter "name=^nexus-ai-gateway$" --format "{{.Names}}" 2>$null } catch { "" }
   if ($container -eq "nexus-ai-gateway") { docker start nexus-ai-gateway | Out-Null; Log "started nexus-ai-gateway container" }
 }
+function Test-NexusGatewayInference() {
+  $reply = Test-JsonPost "http://127.0.0.1:$NexusGatewayPort/v1/chat/completions" @{ model="nexus-primary"; messages=@(@{role="user";content="Respond with exactly: NEXUS AI READY"}); max_tokens=24; temperature=0 }
+  $text = if ($reply -and $reply.choices) { [string]$reply.choices[0].message.content } else { "" }
+  return ($text.Trim().Length -gt 0)
+}
+function Start-NexusFallbackGateway() {
+  $entry = Join-Path $PSScriptRoot "nexus-renn-loopback-gateway.mjs"
+  if (-not (Test-Path -LiteralPath $entry)) { Log "missing Nexus ReNN fallback gateway"; return }
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+  if (-not $node) { Log "node.exe missing; cannot start Nexus fallback gateway"; return }
+  $env:NEXUS_RENN_GATEWAY_PORT = [string]$NexusGatewayPort
+  $env:NEXUSRENN_MODEL_ROUTE = "nexus-primary"
+  $env:EF_COUNCIL_LOCAL_MODEL = $CouncilModel
+  $env:EF_COUNCIL_LOCAL_BASE_URL = "http://127.0.0.1:$OllamaPort/v1"
+  $stdout = Join-Path $logRoot "nexus-renn-gateway.out.log"
+  $stderr = Join-Path $logRoot "nexus-renn-gateway.err.log"
+  Start-Process -FilePath $node -ArgumentList @($entry) -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  Log "started Nexus ReNN fallback gateway $entry model=$CouncilModel"
+}
+function Repair-NexusGatewayIfNeeded() {
+  if (Test-NexusGatewayInference) { return }
+  $container = try { docker ps -a --filter "name=^nexus-ai-gateway$" --format "{{.Names}}" 2>$null } catch { "" }
+  if ($container -eq "nexus-ai-gateway") {
+    try { docker restart nexus-ai-gateway | Out-Null; Log "restarted nexus-ai-gateway container"; Start-Sleep -Seconds 6 } catch { Log "nexus-ai-gateway restart failed $($_.Exception.Message)" }
+    if (Test-NexusGatewayInference) { return }
+    try { docker stop nexus-ai-gateway | Out-Null; Log "stopped broken nexus-ai-gateway container for fallback" } catch { Log "nexus-ai-gateway stop failed $($_.Exception.Message)" }
+    Start-Sleep -Seconds 2
+  }
+  Start-NexusFallbackGateway
+}
 function Cycle() {
   $s8798 = Test-Url "http://127.0.0.1:$KnownGoodCouncilPort/"
   $s8799 = Test-Url "http://127.0.0.1:$CouncilGatewayPort/health"
@@ -104,7 +137,8 @@ function Cycle() {
   Log "health 8798=$s8798 8799=$s8799 4000=$s4000"
   Start-OllamaIfPresent
   if ($s8799 -eq 0) { Start-CouncilGatewayIfPresent }
-  if ($s4000 -eq 0) { Start-NexusGatewayIfPresent }
+  if ($s4000 -eq 0) { Start-NexusGatewayIfPresent; Start-Sleep -Seconds 3 }
+  Repair-NexusGatewayIfNeeded
 }
 Import-RuntimeSettings
 if ($Minutes -le 0) { Cycle; exit 0 }
