@@ -26,8 +26,11 @@ test('restore is audit-only unless Apply is passed and backs up before writes', 
   assert.match(restore, /Copy-Item -LiteralPath \(Join-Path \$PSScriptRoot/);
   assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("stash", "push", "-u"/);
   assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("switch", "-C"/);
-  assert.match(restore, /& \$File @ArgumentList 2>&1/);
-  assert.doesNotMatch(restore, /ProcessStartInfo/);
+  assert.match(restore, /ProcessStartInfo/);
+  assert.match(restore, /RedirectStandardError = \$true/);
+  assert.match(restore, /\$psi\.Arguments = \$escaped -join ' '/);
+  assert.doesNotMatch(restore, /& \$File @ArgumentList 2>&1/);
+  assert.doesNotMatch(restore, /\.ArgumentList\.Add/);
   assert.doesNotMatch(restore, /\[string\[\]\]\$Args/);
 });
 

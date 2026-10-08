@@ -46,15 +46,23 @@ function Ensure-Directory([string]$Path) {
   if ($Apply -and -not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
 }
 function Invoke-Checked([string]$File, [string[]]$ArgumentList, [string]$WorkingDirectory = $PWD.Path) {
-  Push-Location -LiteralPath $WorkingDirectory
-  try {
-    $output = & $File @ArgumentList 2>&1
-    $exitCode = $LASTEXITCODE
-  } finally {
-    Pop-Location
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $File
+  $psi.WorkingDirectory = $WorkingDirectory
+  $escaped = @()
+  foreach ($a in $ArgumentList) {
+    $escaped += '"' + (String $a).Replace('\', '\\').Replace('"', '\"') + '"'
   }
-  $text = ($output | Out-String).Trim()
-  if ($exitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit ${exitCode}: $text" }
+  $psi.Arguments = $escaped -join ' '
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.UseShellExecute = $false
+  $p = [System.Diagnostics.Process]::Start($psi)
+  $stdout = $p.StandardOutput.ReadToEnd()
+  $stderr = $p.StandardError.ReadToEnd()
+  $p.WaitForExit()
+  $text = (($stdout, $stderr) -join "`n").Trim()
+  if ($p.ExitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit $($p.ExitCode): $text" }
   return $text
 }
 function Test-HttpJson([string]$Url, [int]$TimeoutSec = 4) {
