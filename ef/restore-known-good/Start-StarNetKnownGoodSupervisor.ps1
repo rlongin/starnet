@@ -13,7 +13,17 @@ $ErrorActionPreference = "Continue"
 $logRoot = Join-Path $BackupRoot "logs"
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $log = Join-Path $logRoot "supervisor.log"
-function Log($Message) { Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $Message" }
+function Log($Message) {
+  $line = "$(Get-Date -Format o) $Message"
+  try {
+    [System.IO.File]::AppendAllText($log, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
+  } catch {
+    try {
+      $fallback = Join-Path $logRoot "supervisor-$PID.log"
+      [System.IO.File]::AppendAllText($fallback, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
+    } catch {}
+  }
+}
 function Test-Url($Url, $TimeoutSec = 5) { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop; return [int]$r.StatusCode } catch { return 0 } }
 function Test-JsonPost($Url, $Body, $TimeoutSec = 45) {
   try { return Invoke-RestMethod -Method Post -Uri $Url -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
