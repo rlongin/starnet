@@ -7,6 +7,7 @@ const verify = fs.readFileSync('ef/restore-known-good/Verify-StarNetKnownGood.ps
 const supervisor = fs.readFileSync('ef/restore-known-good/Start-StarNetKnownGoodSupervisor.ps1', 'utf8');
 const readme = fs.readFileSync('ef/restore-known-good/README.md', 'utf8');
 const packagedGateway = fs.readFileSync('ef/restore-known-good/ef-nexus-council-gateway.mjs', 'utf8');
+const nexusFallbackGateway = fs.readFileSync('ef/restore-known-good/nexus-renn-loopback-gateway.mjs', 'utf8');
 
 test('restore pins known-good branches and model settings', () => {
   assert.match(restore, /backup\/council-station-working-20260928/);
@@ -58,12 +59,15 @@ test('verification covers local llm, nexus renn, and council ports', () => {
 });
 
 test('supervisor does not kill preserved known-good council', () => {
-  assert.doesNotMatch(supervisor, /Stop-Process|taskkill|docker restart/i);
+  assert.doesNotMatch(supervisor, /Stop-Process|taskkill/i);
   assert.match(supervisor, /start-recovery-gateway\.ps1/);
   assert.match(supervisor, /docker start nexus-ai-gateway/);
+  assert.match(supervisor, /docker restart nexus-ai-gateway/);
+  assert.match(supervisor, /docker stop nexus-ai-gateway/);
   assert.match(supervisor, /OLLAMA_HOST/);
   assert.match(supervisor, /ollama\.exe/);
   assert.match(supervisor, /ef-nexus-council-gateway\.mjs/);
+  assert.match(supervisor, /nexus-renn-loopback-gateway\.mjs/);
   assert.match(supervisor, /EF_COUNCIL_STATION_ROOT/);
   assert.match(supervisor, /EF_COUNCIL_LAUNCH_SECRET/);
   assert.match(supervisor, /EF_AI_RECOVERY_SECRET/);
@@ -72,6 +76,8 @@ test('supervisor does not kill preserved known-good council', () => {
   assert.match(supervisor, /council-gateway\.err\.log/);
   assert.match(supervisor, /\$Minutes/);
   assert.match(packagedGateway, /EF Ventures Nexus Council gateway/);
+  assert.match(nexusFallbackGateway, /\/v1\/chat\/completions/);
+  assert.match(nexusFallbackGateway, /\/api\/generate/);
 });
 
 test('readme states operational boundaries', () => {
