@@ -31,6 +31,7 @@ $ErrorActionPreference = "Stop"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runRoot = Join-Path $BackupRoot $stamp
 $actions = New-Object System.Collections.Generic.List[object]
+$packageRoot = $PSScriptRoot
 
 function Add-Action([string]$Name, [bool]$Ok, [string]$Detail = "", $Data = $null) {
   $row = [ordered]@{ name = $Name; ok = $Ok; detail = $Detail }
@@ -149,7 +150,7 @@ OLLAMA_BASE_URL=$base
   Add-Action "runtime-env" $true $envPath @{ ollamaPort=$OllamaPort; councilModel=$CouncilModel; nexusRoute=$NexusRennModelRoute }
 }
 function Register-SupervisorTask() {
-  $supervisor = Join-Path $PSScriptRoot "Start-StarNetKnownGoodSupervisor.ps1"
+  $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
   if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "startup-task" $false "missing $supervisor"; return }
   if ($Apply) {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`""
@@ -161,6 +162,13 @@ function Register-SupervisorTask() {
 }
 
 Ensure-Directory $runRoot
+if ($Apply) {
+  $stablePackageRoot = Join-Path $BackupRoot "restore-package"
+  Ensure-Directory $stablePackageRoot
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot "*") -Destination $stablePackageRoot -Recurse -Force
+  $packageRoot = $stablePackageRoot
+  Add-Action "self-copy" $true $stablePackageRoot
+}
 $ollamaPort = Detect-OllamaPort $CouncilModel
 if ($null -eq $ollamaPort) { $ollamaPort = 11434; Add-Action "ollama-detect" $false "model $CouncilModel not reachable; defaulting to $ollamaPort" } else { Add-Action "ollama-detect" $true "port=$ollamaPort model=$CouncilModel" }
 Restore-GitRepo $StarNetPath $StarNetBranch $StarNetCommit "known-good-council-20260928"
@@ -169,7 +177,7 @@ Configure-Codex $StarNetPath
 Write-RuntimeSettings $ollamaPort
 Register-SupervisorTask
 
-$verify = & (Join-Path $PSScriptRoot "Verify-StarNetKnownGood.ps1") -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort -NexusRennModelRoute $NexusRennModelRoute -Quiet
+$verify = & (Join-Path $packageRoot "Verify-StarNetKnownGood.ps1") -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort -NexusRennModelRoute $NexusRennModelRoute -Quiet
 Add-Action "verification" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE" $verify
 $result = [ordered]@{ applied = [bool]$Apply; timestamp = (Get-Date).ToString("o"); backupRoot = $runRoot; actions = $actions }
 $json = $result | ConvertTo-Json -Depth 12
