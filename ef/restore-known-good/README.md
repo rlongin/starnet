@@ -39,7 +39,9 @@ What `-Apply` does:
 5. Writes `known-good-runtime.env` with the Council/Nexus ReNN local model settings.
 6. Creates persistent Council launch/recovery secrets under `C:\NexusAI\KnownGoodRestore` so the packaged Council gateway can actually start after a reboot.
 7. Registers and starts a current-user Windows watchdog task named `EF StarNet KnownGood Supervisor`. It runs for seven days per login, checks health every minute, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
-8. Runs one repair cycle immediately, waits briefly, then retries verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
+8. Selects the first installed Ollama model that actually completes inference instead of trusting tags alone.
+9. If the Docker `nexus-ai-gateway` is present but cannot complete chat, it restarts that container once, then falls back to the packaged Nexus ReNN loopback gateway on port `4000`.
+10. Runs one repair cycle immediately, waits briefly, then retries verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
 
 It does not erase workspace data, regenerate encrypted launch keys, disable Bitdefender, change production Lovable publishing, or stop the preserved `8798` Council station. If Bitdefender blocks a launch, add a narrow allow rule for the exact `node.exe`, `ollama.exe`, or `codex.exe` path shown in the restore log rather than disabling protection or excluding whole folders.
 
