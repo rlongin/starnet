@@ -64,6 +64,8 @@ test('supervisor does not kill preserved known-good council', () => {
   assert.match(supervisor, /docker start nexus-ai-gateway/);
   assert.match(supervisor, /docker restart nexus-ai-gateway/);
   assert.match(supervisor, /docker stop nexus-ai-gateway/);
+  assert.match(supervisor, /AppendAllText/);
+  assert.match(supervisor, /supervisor-\$PID\.log/);
   assert.match(supervisor, /OLLAMA_HOST/);
   assert.match(supervisor, /ollama\.exe/);
   assert.match(supervisor, /ef-nexus-council-gateway\.mjs/);
