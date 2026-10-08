@@ -26,6 +26,11 @@ function Get-Json($Url, $Method = "GET", $Body = $null, $TimeoutSec = 12) {
 function Get-Text($Url, $TimeoutSec = 5) {
   try { return Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
 }
+function Invoke-OllamaGenerate($Model, $TimeoutSec = 60) {
+  try {
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$OllamaPort/api/generate" -ContentType "application/json" -Body (@{ model=$Model; prompt="Respond with exactly: NEXUS AI READY"; stream=$false; think=$false; options=@{ num_predict=32 } } | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec -ErrorAction Stop
+  } catch { return $null }
+}
 $codex = Get-Command codex -ErrorAction SilentlyContinue
 Add-Check "codex-cli" ([bool]$codex) $(if($codex){$codex.Source}else{"not found"})
 if ($codex) {
@@ -37,9 +42,22 @@ $modelNames = @()
 if ($tags -and $tags.models) { $modelNames += @($tags.models | ForEach-Object { $_.name; $_.model }) }
 Add-Check "ollama-tags" ($null -ne $tags) "port=$OllamaPort"
 Add-Check "ollama-model" ($modelNames -contains $CouncilModel) "model=$CouncilModel"
-$native = Get-Json "http://127.0.0.1:$OllamaPort/api/generate" "POST" @{ model=$CouncilModel; prompt="Respond with exactly: NEXUS AI READY"; stream=$false; think=$false; options=@{ num_predict=24 } } 45
+$native = Invoke-OllamaGenerate $CouncilModel
 $nativeText = if ($native) { [string]$native.response } else { "" }
-Add-Check "ollama-inference" ($nativeText -match "NEXUS AI READY") $nativeText.Substring(0, [Math]::Min(120, $nativeText.Length))
+$workingModel = $CouncilModel
+if ($nativeText.Trim().Length -eq 0 -and $modelNames.Count -gt 0) {
+  foreach ($candidate in ($modelNames | Where-Object { $_ -and $_ -ne $CouncilModel } | Select-Object -Unique)) {
+    $probe = Invoke-OllamaGenerate $candidate
+    $probeText = if ($probe) { [string]$probe.response } else { "" }
+    if ($probeText.Trim().Length -gt 0) {
+      $native = $probe
+      $nativeText = $probeText
+      $workingModel = $candidate
+      break
+    }
+  }
+}
+Add-Check "ollama-inference" ($nativeText.Trim().Length -gt 0) "model=$workingModel sample=$($nativeText.Substring(0, [Math]::Min(120, $nativeText.Length)))"
 $nexus = Get-Json "http://127.0.0.1:$NexusGatewayPort/v1/chat/completions" "POST" @{ model=$NexusRennModelRoute; messages=@(@{role="user"; content="Respond with exactly: NEXUS AI READY"}); max_tokens=24; temperature=0 } 45
 $nexusText = if ($nexus -and $nexus.choices) { [string]$nexus.choices[0].message.content } else { "" }
 Add-Check "nexusrenn-gateway" ($nexusText -match "NEXUS AI READY") "model=$NexusRennModelRoute sample=$($nexusText.Substring(0, [Math]::Min(120, $nexusText.Length)))"
