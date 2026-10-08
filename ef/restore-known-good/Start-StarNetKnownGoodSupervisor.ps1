@@ -34,6 +34,24 @@ function Get-OrCreateSecret([string]$Path, [int]$MinLength) {
     return ""
   }
 }
+function Import-RuntimeSettings() {
+  $envPath = Join-Path $BackupRoot "known-good-runtime.env"
+  if (-not (Test-Path -LiteralPath $envPath)) { return }
+  try {
+    foreach ($line in Get-Content -LiteralPath $envPath) {
+      if ($line -notmatch "^\s*([^#=]+)=(.*)$") { continue }
+      $key = $Matches[1].Trim()
+      $value = $Matches[2].Trim()
+      if ($key -eq "EF_COUNCIL_LOCAL_MODEL" -and $value) { $script:CouncilModel = $value }
+      if ($key -eq "EF_COUNCIL_LOCAL_BASE_URL" -and $value) {
+        try { $script:OllamaPort = [int]([uri]$value).Port } catch {}
+      }
+    }
+    Log "loaded runtime env model=$CouncilModel ollamaPort=$OllamaPort"
+  } catch {
+    Log "runtime env load failed $($_.Exception.Message)"
+  }
+}
 
 function Start-OllamaIfPresent() {
   if ((Test-Url "http://127.0.0.1:$OllamaPort/api/tags") -ne 0) { return }
@@ -88,6 +106,7 @@ function Cycle() {
   if ($s8799 -eq 0) { Start-CouncilGatewayIfPresent }
   if ($s4000 -eq 0) { Start-NexusGatewayIfPresent }
 }
+Import-RuntimeSettings
 if ($Minutes -le 0) { Cycle; exit 0 }
 $until = (Get-Date).AddMinutes($Minutes)
 while ((Get-Date) -lt $until) { Cycle; Start-Sleep -Seconds 60 }
