@@ -15,6 +15,25 @@ New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $log = Join-Path $logRoot "supervisor.log"
 function Log($Message) { Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $Message" }
 function Test-Url($Url, $TimeoutSec = 5) { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop; return [int]$r.StatusCode } catch { return 0 } }
+function New-Secret([int]$Bytes = 48) {
+  $buffer = New-Object byte[] $Bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+  return [Convert]::ToBase64String($buffer).TrimEnd('=').Replace('+','-').Replace('/','_')
+}
+function Get-OrCreateSecret([string]$Path, [int]$MinLength) {
+  try {
+    if (Test-Path -LiteralPath $Path) {
+      $existing = (Get-Content -LiteralPath $Path -Raw).Trim()
+      if ($existing.Length -ge $MinLength) { return $existing }
+    }
+    $secret = New-Secret 48
+    Set-Content -LiteralPath $Path -Value $secret -Encoding UTF8
+    return $secret
+  } catch {
+    Log "secret unavailable $Path $($_.Exception.Message)"
+    return ""
+  }
+}
 
 function Start-OllamaIfPresent() {
   if ((Test-Url "http://127.0.0.1:$OllamaPort/api/tags") -ne 0) { return }
@@ -30,19 +49,30 @@ function Start-OllamaIfPresent() {
 }
 
 function Start-CouncilGatewayIfPresent() {
-  $existing = Join-Path "C:\NexusAI\Recovery" "start-recovery-gateway.ps1"
-  if (Test-Path -LiteralPath $existing) { Start-Process powershell.exe -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$existing) -WindowStyle Hidden; Log "started existing recovery gateway script"; return }
   $packaged = Join-Path $PSScriptRoot "ef-nexus-council-gateway.mjs"
   $repoEntry = Join-Path $StarNetPath "scripts\ef-nexus-council-gateway.mjs"
-  $entry = if (Test-Path -LiteralPath $packaged) { $packaged } else { $repoEntry }
-  if (Test-Path -LiteralPath $entry) {
+  $existing = Join-Path "C:\NexusAI\Recovery" "start-recovery-gateway.ps1"
+  $entry = if (Test-Path -LiteralPath $packaged) { $packaged } elseif (Test-Path -LiteralPath $repoEntry) { $repoEntry } else { $null }
+  if ($entry -and (Test-Path -LiteralPath $entry)) {
+    $node = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+    if (-not $node) { Log "node.exe missing; cannot start Council gateway"; return }
+    $launchSecret = Get-OrCreateSecret (Join-Path $BackupRoot "council-launch-secret.txt") 32
+    $recoverySecret = Get-OrCreateSecret (Join-Path $BackupRoot "council-recovery-secret.txt") 24
+    if ($launchSecret.Length -lt 32 -and $recoverySecret.Length -lt 24) { Log "Council gateway secret missing"; return }
     $env:EF_COUNCIL_LOCAL_MODEL = $CouncilModel
     $env:EF_COUNCIL_LOCAL_BASE_URL = "http://127.0.0.1:$OllamaPort/v1"
     $env:EF_COUNCIL_GATEWAY_PORT = [string]$CouncilGatewayPort
     $env:EF_COUNCIL_STATION_ROOT = $StarNetPath
+    $env:EF_COUNCIL_LAUNCH_SECRET = $launchSecret
+    $env:EF_AI_RECOVERY_SECRET = $recoverySecret
     if (-not $env:EF_COUNCIL_DATA_ROOT) { $env:EF_COUNCIL_DATA_ROOT = "C:\NexusAI\.ef-nexus-workspaces" }
-    Start-Process node.exe -ArgumentList @($entry) -WorkingDirectory $StarNetPath -WindowStyle Hidden
-    Log "started packaged council gateway $entry with station root $StarNetPath"
+    $stdout = Join-Path $logRoot "council-gateway.out.log"
+    $stderr = Join-Path $logRoot "council-gateway.err.log"
+    Start-Process -FilePath $node -ArgumentList @($entry) -WorkingDirectory $StarNetPath -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    Log "started Council gateway $entry with station root $StarNetPath"
+  } elseif (Test-Path -LiteralPath $existing) {
+    Start-Process powershell.exe -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$existing) -WindowStyle Hidden
+    Log "started existing recovery gateway script"
   } else { Log "no council gateway launcher found" }
 }
 function Start-NexusGatewayIfPresent() {
