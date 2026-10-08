@@ -15,6 +15,20 @@ New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $log = Join-Path $logRoot "supervisor.log"
 function Log($Message) { Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $Message" }
 function Test-Url($Url, $TimeoutSec = 5) { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop; return [int]$r.StatusCode } catch { return 0 } }
+
+function Start-OllamaIfPresent() {
+  if ((Test-Url "http://127.0.0.1:$OllamaPort/api/tags") -ne 0) { return }
+  $candidates = @(
+    "C:\NexusAI\Ollama-Recovery\bin\ollama.exe",
+    "C:\Program Files\Ollama\ollama.exe",
+    (Get-Command ollama.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
+  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+  if (-not $candidates -or $candidates.Count -eq 0) { Log "ollama missing for port $OllamaPort"; return }
+  $env:OLLAMA_HOST = "127.0.0.1:$OllamaPort"
+  Start-Process -FilePath $candidates[0] -ArgumentList @("serve") -WindowStyle Hidden
+  Log "started Ollama $($candidates[0]) on $env:OLLAMA_HOST"
+}
+
 function Start-CouncilGatewayIfPresent() {
   $existing = Join-Path "C:\NexusAI\Recovery" "start-recovery-gateway.ps1"
   if (Test-Path -LiteralPath $existing) { Start-Process powershell.exe -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$existing) -WindowStyle Hidden; Log "started existing recovery gateway script"; return }
@@ -36,6 +50,7 @@ function Cycle() {
   $s8799 = Test-Url "http://127.0.0.1:$CouncilGatewayPort/health"
   $s4000 = Test-Url "http://127.0.0.1:$NexusGatewayPort/v1/models"
   Log "health 8798=$s8798 8799=$s8799 4000=$s4000"
+  Start-OllamaIfPresent
   if ($s8799 -eq 0) { Start-CouncilGatewayIfPresent }
   if ($s4000 -eq 0) { Start-NexusGatewayIfPresent }
 }

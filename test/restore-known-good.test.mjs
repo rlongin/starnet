@@ -35,6 +35,8 @@ test('supervisor does not kill preserved known-good council', () => {
   assert.doesNotMatch(supervisor, /Stop-Process|taskkill|docker restart/i);
   assert.match(supervisor, /start-recovery-gateway\.ps1/);
   assert.match(supervisor, /docker start nexus-ai-gateway/);
+  assert.match(supervisor, /OLLAMA_HOST/);
+  assert.match(supervisor, /ollama\.exe/);
 });
 
 test('readme states operational boundaries', () => {
