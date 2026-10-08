@@ -48,6 +48,7 @@ test('verification covers local llm, nexus renn, and council ports', () => {
     assert.match(verify, new RegExp(token.replace(/[/.]/g, m => '\\' + m)));
   }
   assert.match(verify, /\[switch\]\$NoExit/);
+  assert.match(verify, /\$critical = @\("ollama-tags", "ollama-model", "ollama-inference", "nexusrenn-gateway", "council-gateway-8799"\)/);
   assert.match(verify, /if \(-not \$NoExit -and -not \$result\.ok\)/);
 });
 
