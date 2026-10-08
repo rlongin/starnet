@@ -72,6 +72,13 @@ function Test-HttpJson([string]$Url, [int]$TimeoutSec = 4) {
 function Test-HttpText([string]$Url, [int]$TimeoutSec = 4) {
   try { return Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
 }
+function Invoke-OllamaGenerate([int]$Port, [string]$Model, [int]$TimeoutSec = 60) {
+  try {
+    $body = @{ model=$Model; prompt="Respond with exactly: NEXUS AI READY"; stream=$false; think=$false; options=@{ num_predict=32 } }
+    $reply = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/api/generate" -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec -ErrorAction Stop
+    return [string]$reply.response
+  } catch { return "" }
+}
 function Detect-OllamaPort([string]$Model) {
   foreach ($port in $OllamaPorts) {
     $tags = Test-HttpJson "http://127.0.0.1:$port/api/tags"
@@ -84,6 +91,23 @@ function Detect-OllamaPort([string]$Model) {
     if (Test-HttpJson "http://127.0.0.1:$port/api/tags") { return $port }
   }
   return $null
+}
+function Get-OllamaModelNames([int]$Port) {
+  $tags = Test-HttpJson "http://127.0.0.1:$Port/api/tags"
+  $names = @()
+  if ($tags -and $tags.models) { $names += @($tags.models | ForEach-Object { $_.name; $_.model }) }
+  return @($names | Where-Object { $_ } | Select-Object -Unique)
+}
+function Select-WorkingCouncilModel([int]$Port, [string]$PreferredModel) {
+  $models = @(Get-OllamaModelNames $Port)
+  $candidates = @($PreferredModel) + @($models | Where-Object { $_ -ne $PreferredModel })
+  foreach ($model in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+    $sample = Invoke-OllamaGenerate $Port $model
+    if ($sample.Trim().Length -gt 0) {
+      return @{ model=$model; sample=$sample.Substring(0, [Math]::Min(120, $sample.Length)) }
+    }
+  }
+  return @{ model=$PreferredModel; sample="" }
 }
 function Backup-File([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $null }
@@ -175,14 +199,14 @@ function Register-SupervisorTask() {
   $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
   if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "startup-task" $false "missing $supervisor"; return }
   if ($Apply) {
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`" -Minutes 10080"
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`" -CouncilModel `"$CouncilModel`" -OllamaPort $ollamaPort -Minutes 10080"
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 7) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor" -Action $action -Trigger $trigger -Settings $settings -Description "Restarts EF Council/Nexus local health checks after login." -Force | Out-Null
     try { Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"; Add-Action "watchdog-start" $true "started now" }
     catch {
       try {
-        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$supervisor,"-StarNetPath",$StarNetPath,"-BackupRoot",$BackupRoot,"-Minutes","10080") -WindowStyle Hidden
+        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$supervisor,"-StarNetPath",$StarNetPath,"-BackupRoot",$BackupRoot,"-CouncilModel",$CouncilModel,"-OllamaPort",[string]$ollamaPort,"-Minutes","10080") -WindowStyle Hidden
         Add-Action "watchdog-start" $true "direct fallback started"
       } catch {
         Add-Action "watchdog-start" $false $_.Exception.Message
@@ -223,6 +247,17 @@ if ($Apply) {
 }
 $ollamaPort = Detect-OllamaPort $CouncilModel
 if ($null -eq $ollamaPort) { $ollamaPort = 11434; Add-Action "ollama-detect" $false "model $CouncilModel not reachable; defaulting to $ollamaPort" } else { Add-Action "ollama-detect" $true "port=$ollamaPort model=$CouncilModel" }
+$workingModel = Select-WorkingCouncilModel $ollamaPort $CouncilModel
+if ($workingModel.sample) {
+  if ($workingModel.model -ne $CouncilModel) {
+    Add-Action "ollama-model-select" $true "preferred $CouncilModel failed; using $($workingModel.model)" @{ sample=$workingModel.sample }
+    $CouncilModel = $workingModel.model
+  } else {
+    Add-Action "ollama-model-select" $true "using $CouncilModel" @{ sample=$workingModel.sample }
+  }
+} else {
+  Add-Action "ollama-model-select" $false "no installed Ollama model completed inference on port $ollamaPort"
+}
 if ($RollbackRepo) {
   Restore-GitRepo $StarNetPath $StarNetBranch $StarNetCommit "known-good-council-20260928"
   if (Test-Path -LiteralPath $NexusPath) { Restore-GitRepo $NexusPath $NexusBranch $NexusCommit "known-good-nexusrenn-20260924" } else { Add-Action "git:known-good-nexusrenn-20260924" $false "missing Nexus repo $NexusPath" }
