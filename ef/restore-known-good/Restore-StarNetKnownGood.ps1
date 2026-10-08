@@ -1,0 +1,277 @@
+<#
+Restores Ricardo's StarNet/Nexus local setup to the last known-good Council/Nexus settings.
+
+Default mode is audit-only. Pass -Apply to change the Windows machine.
+This script backs up config before writing, stashes repo changes before checkout,
+and registers a limited current-user startup task for the supervisor.
+#>
+[CmdletBinding()]
+param(
+  [switch]$Apply,
+  [switch]$RollbackRepo,
+  [switch]$Quiet,
+  [string]$StarNetPath = "C:\Users\Ricardo\Documents\GitHub\starnet",
+  [string]$NexusPath = "C:\Users\Ricardo\Documents\GitHub\efv-nexus-hub",
+  [string]$BackupRoot = "C:\NexusAI\KnownGoodRestore",
+  [string]$StarNetBranch = "backup/council-station-working-20260928",
+  [string]$StarNetCommit = "24cf4da4f2e0e5a9374797bed17f087401859ed7",
+  [string]$NexusBranch = "backup/nexusrenn-golden-2026-09-24",
+  [string]$NexusCommit = "390449bc1decc21c1c3334c44c0271437d9f071f",
+  [string]$CodexModel = "gpt-5.5",
+  [string]$CouncilModel = "qwen3:8b",
+  [int[]]$OllamaPorts = @(11434, 11435),
+  [int]$NexusGatewayPort = 4000,
+  [int]$KnownGoodCouncilPort = 8798,
+  [int]$CouncilGatewayPort = 8799,
+  [int]$FirstMemberPort = 8801,
+  [string]$NexusRennModelRoute = "nexus-primary",
+  [string]$NexusRennModelName = "Laleau"
+)
+$ErrorActionPreference = "Stop"
+
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$runRoot = Join-Path $BackupRoot $stamp
+$actions = New-Object System.Collections.Generic.List[object]
+$packageRoot = $PSScriptRoot
+
+function Add-Action([string]$Name, [bool]$Ok, [string]$Detail = "", $Data = $null) {
+  $row = [ordered]@{ name = $Name; ok = $Ok; detail = $Detail }
+  if ($null -ne $Data) { $row.data = $Data }
+  $actions.Add($row) | Out-Null
+  if (-not $Quiet) {
+    $status = if ($Ok) { "OK" } else { "FAIL" }
+    Write-Host "[$status] $Name $Detail"
+  }
+}
+function Ensure-Directory([string]$Path) {
+  if ($Apply -and -not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
+}
+function Invoke-Checked([string]$File, [string[]]$ArgumentList, [string]$WorkingDirectory = $PWD.Path) {
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $File
+  $psi.WorkingDirectory = $WorkingDirectory
+  $escaped = @()
+  foreach ($a in $ArgumentList) {
+    $escaped += '"' + ([string]$a).Replace('\', '\\').Replace('"', '\"') + '"'
+  }
+  $psi.Arguments = $escaped -join ' '
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.UseShellExecute = $false
+  $p = [System.Diagnostics.Process]::Start($psi)
+  $stdout = $p.StandardOutput.ReadToEnd()
+  $stderr = $p.StandardError.ReadToEnd()
+  $p.WaitForExit()
+  $text = (($stdout, $stderr) -join "`n").Trim()
+  if ($p.ExitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit $($p.ExitCode): $text" }
+  return $text
+}
+function Test-HttpJson([string]$Url, [int]$TimeoutSec = 4) {
+  try { return Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
+}
+function Test-HttpText([string]$Url, [int]$TimeoutSec = 4) {
+  try { return Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
+}
+function Invoke-OllamaGenerate([int]$Port, [string]$Model, [int]$TimeoutSec = 60) {
+  try {
+    $body = @{ model=$Model; prompt="Respond with exactly: NEXUS AI READY"; stream=$false; think=$false; options=@{ num_predict=32 } }
+    $reply = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/api/generate" -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec -ErrorAction Stop
+    return [string]$reply.response
+  } catch { return "" }
+}
+function Detect-OllamaPort([string]$Model) {
+  foreach ($port in $OllamaPorts) {
+    $tags = Test-HttpJson "http://127.0.0.1:$port/api/tags"
+    if ($null -eq $tags) { continue }
+    $names = @()
+    if ($tags.models) { $names += @($tags.models | ForEach-Object { $_.name; $_.model }) }
+    if ($names -contains $Model) { return $port }
+  }
+  foreach ($port in $OllamaPorts) {
+    if (Test-HttpJson "http://127.0.0.1:$port/api/tags") { return $port }
+  }
+  return $null
+}
+function Get-OllamaModelNames([int]$Port) {
+  $tags = Test-HttpJson "http://127.0.0.1:$Port/api/tags"
+  $names = @()
+  if ($tags -and $tags.models) { $names += @($tags.models | ForEach-Object { $_.name; $_.model }) }
+  return @($names | Where-Object { $_ } | Select-Object -Unique)
+}
+function Select-WorkingCouncilModel([int]$Port, [string]$PreferredModel) {
+  $models = @(Get-OllamaModelNames $Port)
+  $candidates = @($PreferredModel) + @($models | Where-Object { $_ -ne $PreferredModel })
+  foreach ($model in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+    $sample = Invoke-OllamaGenerate $Port $model
+    if ($sample.Trim().Length -gt 0) {
+      return @{ model=$model; sample=$sample.Substring(0, [Math]::Min(120, $sample.Length)) }
+    }
+  }
+  return @{ model=$PreferredModel; sample="" }
+}
+function Backup-File([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  Ensure-Directory $runRoot
+  $safe = ($Path -replace '[:\\/]+','_').Trim('_')
+  $dest = Join-Path $runRoot $safe
+  if ($Apply) { Copy-Item -LiteralPath $Path -Destination $dest -Force }
+  return $dest
+}
+function Write-TextFile([string]$Path, [string]$Content) {
+  Ensure-Directory (Split-Path -Parent $Path)
+  if ($Apply) { Set-Content -LiteralPath $Path -Value $Content -Encoding UTF8 }
+}
+function New-Secret([int]$Bytes = 48) {
+  $buffer = New-Object byte[] $Bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+  return [Convert]::ToBase64String($buffer).TrimEnd('=').Replace('+','-').Replace('/','_')
+}
+function Ensure-SecretFile([string]$Path, [int]$MinLength) {
+  $existing = ""
+  if (Test-Path -LiteralPath $Path) { $existing = (Get-Content -LiteralPath $Path -Raw).Trim() }
+  if ($existing.Length -ge $MinLength) { Add-Action "secret:$([IO.Path]::GetFileName($Path))" $true "existing"; return }
+  if ($Apply) { Write-TextFile $Path (New-Secret 48) }
+  Add-Action "secret:$([IO.Path]::GetFileName($Path))" $true "created"
+}
+function Restore-GitRepo([string]$Path, [string]$Branch, [string]$Commit, [string]$LocalBranch) {
+  if (-not (Test-Path -LiteralPath (Join-Path $Path ".git"))) { Add-Action "git:$LocalBranch" $false "missing repo $Path"; return }
+  $head = Invoke-Checked -File "git" -ArgumentList @("rev-parse", "HEAD") -WorkingDirectory $Path
+  $dirty = Invoke-Checked -File "git" -ArgumentList @("status", "--porcelain") -WorkingDirectory $Path
+  if ($Apply -and $dirty) {
+    Invoke-Checked -File "git" -ArgumentList @("stash", "push", "-u", "-m", "pre-known-good-restore-$stamp") -WorkingDirectory $Path | Out-Null
+  }
+  if ($Apply) {
+    Invoke-Checked -File "git" -ArgumentList @("fetch", "--no-tags", "origin", $Branch) -WorkingDirectory $Path | Out-Null
+    Invoke-Checked -File "git" -ArgumentList @("switch", "-C", $LocalBranch, $Commit) -WorkingDirectory $Path | Out-Null
+  }
+  Add-Action "git:$LocalBranch" $true "current=$head target=$Commit dirty=$([bool]$dirty)"
+}
+function Configure-Codex([string]$RepoPath) {
+  $codex = Get-Command codex -ErrorAction SilentlyContinue
+  Add-Action "codex-cli" ([bool]$codex) $(if($codex){$codex.Source}else{"codex command not found"})
+  $cfgPath = Join-Path $env:USERPROFILE ".codex\config.toml"
+  $backup = Backup-File $cfgPath
+  $content = @"
+model = "$CodexModel"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "medium"
+web_search = "cached"
+
+[windows]
+sandbox = "elevated"
+"@
+  Write-TextFile $cfgPath $content
+  $projectCfg = Join-Path $RepoPath ".codex\config.toml"
+  Write-TextFile $projectCfg $content
+  Add-Action "codex-config" $true "model=$CodexModel approval=on-request sandbox=workspace-write backup=$backup"
+  $launcher = Join-Path $BackupRoot "START-STARNET-CODEX-GPT55.cmd"
+  $cmd = @"
+@echo off
+cd /d "$RepoPath"
+codex --model $CodexModel --ask-for-approval on-request --sandbox workspace-write --cd "$RepoPath"
+"@
+  Write-TextFile $launcher $cmd
+  Add-Action "codex-launcher" $true $launcher
+}
+function Write-RuntimeSettings([int]$OllamaPort) {
+  $envPath = Join-Path $BackupRoot "known-good-runtime.env"
+  $base = "http://127.0.0.1:$OllamaPort/v1"
+  $content = @"
+EF_COUNCIL_LOCAL_MODEL=$CouncilModel
+EF_COUNCIL_LOCAL_BASE_URL=$base
+EF_COUNCIL_GATEWAY_PORT=$CouncilGatewayPort
+EF_COUNCIL_MEMBER_PORT_START=$FirstMemberPort
+LOCAL_AI_GATEWAY_URL=http://127.0.0.1:$NexusGatewayPort/v1/chat/completions
+NEXUSRENN_MODEL_ROUTE=$NexusRennModelRoute
+NEXUSRENN_MODEL_NAME=$NexusRennModelName
+STARNET_DEFAULT_MODEL=$CouncilModel
+OLLAMA_BASE_URL=$base
+"@
+  Write-TextFile $envPath $content
+  Add-Action "runtime-env" $true $envPath @{ ollamaPort=$OllamaPort; councilModel=$CouncilModel; nexusRoute=$NexusRennModelRoute }
+}
+function Ensure-CouncilSecrets() {
+  Ensure-SecretFile (Join-Path $BackupRoot "council-launch-secret.txt") 32
+  Ensure-SecretFile (Join-Path $BackupRoot "council-recovery-secret.txt") 24
+}
+function Register-SupervisorTask() {
+  $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
+  if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "startup-task" $false "missing $supervisor"; return }
+  if ($Apply) {
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`" -CouncilModel `"$CouncilModel`" -OllamaPort $ollamaPort -Minutes 10080"
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 7) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor" -Action $action -Trigger $trigger -Settings $settings -Description "Restarts EF Council/Nexus local health checks after login." -Force | Out-Null
+    try { Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"; Add-Action "watchdog-start" $true "started now" }
+    catch {
+      try {
+        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$supervisor,"-StarNetPath",$StarNetPath,"-BackupRoot",$BackupRoot,"-CouncilModel",$CouncilModel,"-OllamaPort",[string]$ollamaPort,"-Minutes","10080") -WindowStyle Hidden
+        Add-Action "watchdog-start" $true "direct fallback started"
+      } catch {
+        Add-Action "watchdog-start" $false $_.Exception.Message
+      }
+    }
+  }
+  Add-Action "startup-task" $true "EF StarNet KnownGood Supervisor continuous watchdog"
+}
+function Invoke-SupervisorNow() {
+  $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
+  if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "supervisor-now" $false "missing $supervisor"; return }
+  if ($Apply) {
+    & $supervisor -StarNetPath $StarNetPath -BackupRoot $BackupRoot -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort
+    Start-Sleep -Seconds 8
+  }
+  Add-Action "supervisor-now" $true "ran one repair cycle"
+}
+function Invoke-VerificationWithRetry() {
+  $verifyScript = Join-Path $packageRoot "Verify-StarNetKnownGood.ps1"
+  $verifyResult = $null
+  $ok = $false
+  for ($i = 1; $i -le 3; $i++) {
+    $verifyResult = & $verifyScript -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort -NexusRennModelRoute $NexusRennModelRoute -NoExit -Quiet
+    try { $ok = [bool](($verifyResult | ConvertFrom-Json).ok) } catch { $ok = $false }
+    if ($ok) { break }
+    if ($Apply -and $i -lt 3) { Start-Sleep -Seconds 8 }
+  }
+  Add-Action "verification" $ok "ok=$ok" $verifyResult
+}
+
+Ensure-Directory $runRoot
+if ($Apply) {
+  $stablePackageRoot = Join-Path $BackupRoot "restore-package"
+  Ensure-Directory $stablePackageRoot
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot "*") -Destination $stablePackageRoot -Recurse -Force
+  $packageRoot = $stablePackageRoot
+  Add-Action "self-copy" $true $stablePackageRoot
+}
+$ollamaPort = Detect-OllamaPort $CouncilModel
+if ($null -eq $ollamaPort) { $ollamaPort = 11434; Add-Action "ollama-detect" $false "model $CouncilModel not reachable; defaulting to $ollamaPort" } else { Add-Action "ollama-detect" $true "port=$ollamaPort model=$CouncilModel" }
+$workingModel = Select-WorkingCouncilModel $ollamaPort $CouncilModel
+if ($workingModel.sample) {
+  if ($workingModel.model -ne $CouncilModel) {
+    Add-Action "ollama-model-select" $true "preferred $CouncilModel failed; using $($workingModel.model)" @{ sample=$workingModel.sample }
+    $CouncilModel = $workingModel.model
+  } else {
+    Add-Action "ollama-model-select" $true "using $CouncilModel" @{ sample=$workingModel.sample }
+  }
+} else {
+  Add-Action "ollama-model-select" $false "no installed Ollama model completed inference on port $ollamaPort"
+}
+if ($RollbackRepo) {
+  Restore-GitRepo $StarNetPath $StarNetBranch $StarNetCommit "known-good-council-20260928"
+  if (Test-Path -LiteralPath $NexusPath) { Restore-GitRepo $NexusPath $NexusBranch $NexusCommit "known-good-nexusrenn-20260924" } else { Add-Action "git:known-good-nexusrenn-20260924" $false "missing Nexus repo $NexusPath" }
+} else {
+  Add-Action "git-rollback" $true "skipped by default; use -RollbackRepo only after Council gateway is healthy"
+}
+Configure-Codex $StarNetPath
+Write-RuntimeSettings $ollamaPort
+Ensure-CouncilSecrets
+Register-SupervisorTask
+Invoke-SupervisorNow
+Invoke-VerificationWithRetry
+$result = [ordered]@{ applied = [bool]$Apply; timestamp = (Get-Date).ToString("o"); backupRoot = $runRoot; actions = $actions }
+$json = $result | ConvertTo-Json -Depth 12
+if ($Apply) { Set-Content -LiteralPath (Join-Path $runRoot "restore-result.json") -Value $json -Encoding UTF8 }
+$json
+if (($actions | Where-Object { -not $_.ok }).Count -gt 0) { exit 1 }

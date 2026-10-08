@@ -1,0 +1,52 @@
+# StarNet / Nexus known-good restore package
+
+This package restores the PC-facing pieces to the last known-good settings instead of chasing the current broken state.
+
+Pinned restore points:
+
+- StarNet Council: `rlongin/starnet` branch `backup/council-station-working-20260928`, commit `24cf4da4f2e0e5a9374797bed17f087401859ed7`.
+- Nexus ReNN / Lovable platform source: `rlongin/efv-nexus-hub` branch `backup/nexusrenn-golden-2026-09-24`, commit `390449bc1decc21c1c3334c44c0271437d9f071f`.
+- Codex chat/repair model: `gpt-5.5` with `approval_policy = "on-request"` and `sandbox_mode = "workspace-write"`.
+- Local LLM runtime: `qwen3:8b` through loopback Ollama, preferring port `11434` and accepting the existing recovery port `11435` when that is where the model is reachable.
+- Nexus ReNN local gateway: `http://127.0.0.1:4000/v1/chat/completions`, model route `nexus-primary`, display/model name `Laleau`.
+- EF Council ports: preserved known-good station `8798`, gateway `8799`, member stations starting at `8801`.
+- EF Council gateway: a stable copy of the gateway is included in this package so rolling the repo back cannot remove the script needed to launch `8799`.
+
+Run audit-only first:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1
+```
+
+Apply the repair without touching your repo checkout:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1 -Apply
+```
+
+Only after the Council gateway is healthy, use `-RollbackRepo` if you still want the script to switch the local StarNet and Nexus repos to the pinned rollback branches:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1 -Apply -RollbackRepo
+```
+
+What `-Apply` does:
+
+1. Copies this restore package to `C:\NexusAI\KnownGoodRestore\restore-package` so the helpers remain available after the repo is switched to the older known-good commit.
+2. Backs up Codex config and writes a GPT-5.5/on-request/workspace-write config.
+3. Creates `C:\NexusAI\KnownGoodRestore\START-STARNET-CODEX-GPT55.cmd` for local ChatGPT/Codex work on the StarNet repo.
+4. Leaves the repo checkout alone by default. With `-RollbackRepo`, stashes uncommitted repo changes, then checks out local restore branches pinned to the known-good commits.
+5. Writes `known-good-runtime.env` with the Council/Nexus ReNN local model settings.
+6. Creates persistent Council launch/recovery secrets under `C:\NexusAI\KnownGoodRestore` so the packaged Council gateway can actually start after a reboot.
+7. Registers and starts a current-user Windows watchdog task named `EF StarNet KnownGood Supervisor`. It runs for seven days per login, checks health every minute, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
+8. Selects the first installed Ollama model that actually completes inference instead of trusting tags alone.
+9. If the Docker `nexus-ai-gateway` is present but cannot complete chat, it restarts that container once, then falls back to the packaged Nexus ReNN loopback gateway on port `4000`.
+10. Runs one repair cycle immediately, waits briefly, then retries verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
+
+It does not erase workspace data, regenerate encrypted launch keys, disable Bitdefender, change production Lovable publishing, or stop the preserved `8798` Council station. If Bitdefender blocks a launch, add a narrow allow rule for the exact `node.exe`, `ollama.exe`, or `codex.exe` path shown in the restore log rather than disabling protection or excluding whole folders.
+
+The fastest recovery command after a crash is:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\NexusAI\KnownGoodRestore\restore-package\Start-StarNetKnownGoodSupervisor.ps1 -Minutes 10
+```

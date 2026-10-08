@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+const restore = fs.readFileSync('ef/restore-known-good/Restore-StarNetKnownGood.ps1', 'utf8');
+const verify = fs.readFileSync('ef/restore-known-good/Verify-StarNetKnownGood.ps1', 'utf8');
+const supervisor = fs.readFileSync('ef/restore-known-good/Start-StarNetKnownGoodSupervisor.ps1', 'utf8');
+const readme = fs.readFileSync('ef/restore-known-good/README.md', 'utf8');
+const packagedGateway = fs.readFileSync('ef/restore-known-good/ef-nexus-council-gateway.mjs', 'utf8');
+const nexusFallbackGateway = fs.readFileSync('ef/restore-known-good/nexus-renn-loopback-gateway.mjs', 'utf8');
+
+test('restore pins known-good branches and model settings', () => {
+  assert.match(restore, /backup\/council-station-working-20260928/);
+  assert.match(restore, /24cf4da4f2e0e5a9374797bed17f087401859ed7/);
+  assert.match(restore, /backup\/nexusrenn-golden-2026-09-24/);
+  assert.match(restore, /390449bc1decc21c1c3334c44c0271437d9f071f/);
+  assert.match(restore, /gpt-5\.5/);
+  assert.match(restore, /qwen3:8b/);
+  assert.match(restore, /nexus-primary/);
+});
+
+test('restore is audit-only unless Apply is passed and backs up before writes', () => {
+  assert.match(restore, /\[switch\]\$Apply/);
+  assert.match(restore, /\[switch\]\$RollbackRepo/);
+  assert.match(restore, /if \(\$Apply\)/);
+  assert.match(restore, /if \(\$RollbackRepo\)/);
+  assert.match(restore, /git-rollback/);
+  assert.match(restore, /Backup-File \$cfgPath/);
+  assert.match(restore, /restore-package/);
+  assert.match(restore, /Copy-Item -LiteralPath \(Join-Path \$PSScriptRoot/);
+  assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("stash", "push", "-u"/);
+  assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("switch", "-C"/);
+  assert.match(restore, /ProcessStartInfo/);
+  assert.match(restore, /RedirectStandardError = \$true/);
+  assert.match(restore, /\$psi\.Arguments = \$escaped -join ' '/);
+  assert.match(restore, /Ensure-CouncilSecrets/);
+  assert.match(restore, /Select-WorkingCouncilModel/);
+  assert.match(restore, /ollama-model-select/);
+  assert.match(restore, /Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"/);
+  assert.match(restore, /-CouncilModel `"\$CouncilModel`" -OllamaPort \$ollamaPort/);
+  assert.match(restore, /Invoke-SupervisorNow/);
+  assert.match(restore, /Invoke-VerificationWithRetry/);
+  assert.match(restore, /-NoExit -Quiet/);
+  assert.doesNotMatch(restore, /& \$File @ArgumentList 2>&1/);
+  assert.doesNotMatch(restore, /\.ArgumentList\.Add/);
+  assert.doesNotMatch(restore, /\[string\[\]\]\$Args/);
+  assert.doesNotMatch(restore, /\(String \$a\)/);
+});
+
+test('verification covers local llm, nexus renn, and council ports', () => {
+  for (const token of ['api/tags', 'api/generate', 'v1/chat/completions', '8798', '8799', '4000']) {
+    assert.match(verify, new RegExp(token.replace(/[/.]/g, m => '\\' + m)));
+  }
+  assert.match(verify, /\[switch\]\$NoExit/);
+  assert.match(verify, /Invoke-OllamaGenerate/);
+  assert.match(verify, /\$workingModel/);
+  assert.match(verify, /\$critical = @\("ollama-tags", "ollama-model", "ollama-inference", "nexusrenn-gateway", "council-gateway-8799"\)/);
+  assert.match(verify, /if \(-not \$NoExit -and -not \$result\.ok\)/);
+});
+
+test('supervisor does not kill preserved known-good council', () => {
+  assert.doesNotMatch(supervisor, /Stop-Process|taskkill/i);
+  assert.match(supervisor, /start-recovery-gateway\.ps1/);
+  assert.match(supervisor, /docker start nexus-ai-gateway/);
+  assert.match(supervisor, /docker restart nexus-ai-gateway/);
+  assert.match(supervisor, /docker stop nexus-ai-gateway/);
+  assert.match(supervisor, /AppendAllText/);
+  assert.match(supervisor, /supervisor-\$PID\.log/);
+  assert.match(supervisor, /OLLAMA_HOST/);
+  assert.match(supervisor, /ollama\.exe/);
+  assert.match(supervisor, /ef-nexus-council-gateway\.mjs/);
+  assert.match(supervisor, /nexus-renn-loopback-gateway\.mjs/);
+  assert.match(supervisor, /EF_COUNCIL_STATION_ROOT/);
+  assert.match(supervisor, /EF_COUNCIL_LAUNCH_SECRET/);
+  assert.match(supervisor, /EF_AI_RECOVERY_SECRET/);
+  assert.match(supervisor, /Import-RuntimeSettings/);
+  assert.match(supervisor, /known-good-runtime\.env/);
+  assert.match(supervisor, /council-gateway\.err\.log/);
+  assert.match(supervisor, /\$Minutes/);
+  assert.match(packagedGateway, /EF Ventures Nexus Council gateway/);
+  assert.match(nexusFallbackGateway, /\/v1\/chat\/completions/);
+  assert.match(nexusFallbackGateway, /\/api\/generate/);
+});
+
+test('readme states operational boundaries', () => {
+  assert.match(readme, /does not erase workspace data/);
+  assert.match(readme, /does not.*disable Bitdefender/);
+  assert.match(readme, /does not.*change production Lovable publishing/);
+});
