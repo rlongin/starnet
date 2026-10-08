@@ -10,6 +10,7 @@ Pinned restore points:
 - Local LLM runtime: `qwen3:8b` through loopback Ollama, preferring port `11434` and accepting the existing recovery port `11435` when that is where the model is reachable.
 - Nexus ReNN local gateway: `http://127.0.0.1:4000/v1/chat/completions`, model route `nexus-primary`, display/model name `Laleau`.
 - EF Council ports: preserved known-good station `8798`, gateway `8799`, member stations starting at `8801`.
+- EF Council gateway: a stable copy of the gateway is included in this package so rolling the repo back cannot remove the script needed to launch `8799`.
 
 Run audit-only first:
 
@@ -30,8 +31,7 @@ What `-Apply` does:
 3. Creates `C:\NexusAI\KnownGoodRestore\START-STARNET-CODEX-GPT55.cmd` for local ChatGPT/Codex work on the StarNet repo.
 4. Stashes uncommitted repo changes, then checks out local restore branches pinned to the known-good commits.
 5. Writes `known-good-runtime.env` with the Council/Nexus ReNN local model settings.
-6. Registers a current-user Windows startup task named `EF StarNet KnownGood Supervisor` that checks health after login, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing.
+6. Registers a current-user Windows startup task named `EF StarNet KnownGood Supervisor` that checks health after login, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
 7. Runs verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
 
 It does not erase workspace data, regenerate encrypted launch keys, disable Bitdefender, change production Lovable publishing, or stop the preserved `8798` Council station. If Bitdefender blocks a launch, add a narrow allow rule for the exact `node.exe`, `ollama.exe`, or `codex.exe` path shown in the restore log rather than disabling protection or excluding whole folders.
-

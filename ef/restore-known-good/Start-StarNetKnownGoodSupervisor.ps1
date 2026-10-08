@@ -32,13 +32,17 @@ function Start-OllamaIfPresent() {
 function Start-CouncilGatewayIfPresent() {
   $existing = Join-Path "C:\NexusAI\Recovery" "start-recovery-gateway.ps1"
   if (Test-Path -LiteralPath $existing) { Start-Process powershell.exe -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$existing) -WindowStyle Hidden; Log "started existing recovery gateway script"; return }
-  $entry = Join-Path $StarNetPath "scripts\ef-nexus-council-gateway.mjs"
+  $packaged = Join-Path $PSScriptRoot "ef-nexus-council-gateway.mjs"
+  $repoEntry = Join-Path $StarNetPath "scripts\ef-nexus-council-gateway.mjs"
+  $entry = if (Test-Path -LiteralPath $packaged) { $packaged } else { $repoEntry }
   if (Test-Path -LiteralPath $entry) {
     $env:EF_COUNCIL_LOCAL_MODEL = $CouncilModel
     $env:EF_COUNCIL_LOCAL_BASE_URL = "http://127.0.0.1:$OllamaPort/v1"
     $env:EF_COUNCIL_GATEWAY_PORT = [string]$CouncilGatewayPort
+    $env:EF_COUNCIL_STATION_ROOT = $StarNetPath
+    if (-not $env:EF_COUNCIL_DATA_ROOT) { $env:EF_COUNCIL_DATA_ROOT = "C:\NexusAI\.ef-nexus-workspaces" }
     Start-Process node.exe -ArgumentList @($entry) -WorkingDirectory $StarNetPath -WindowStyle Hidden
-    Log "started repo council gateway $entry"
+    Log "started packaged council gateway $entry with station root $StarNetPath"
   } else { Log "no council gateway launcher found" }
 }
 function Start-NexusGatewayIfPresent() {
@@ -57,4 +61,3 @@ function Cycle() {
 if ($Minutes -le 0) { Cycle; exit 0 }
 $until = (Get-Date).AddMinutes($Minutes)
 while ((Get-Date) -lt $until) { Cycle; Start-Sleep -Seconds 60 }
-
