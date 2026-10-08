@@ -33,7 +33,10 @@ test('restore is audit-only unless Apply is passed and backs up before writes', 
   assert.match(restore, /RedirectStandardError = \$true/);
   assert.match(restore, /\$psi\.Arguments = \$escaped -join ' '/);
   assert.match(restore, /Ensure-CouncilSecrets/);
+  assert.match(restore, /Select-WorkingCouncilModel/);
+  assert.match(restore, /ollama-model-select/);
   assert.match(restore, /Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"/);
+  assert.match(restore, /-CouncilModel `"\$CouncilModel`" -OllamaPort \$ollamaPort/);
   assert.match(restore, /Invoke-SupervisorNow/);
   assert.match(restore, /Invoke-VerificationWithRetry/);
   assert.match(restore, /-NoExit -Quiet/);
@@ -48,6 +51,8 @@ test('verification covers local llm, nexus renn, and council ports', () => {
     assert.match(verify, new RegExp(token.replace(/[/.]/g, m => '\\' + m)));
   }
   assert.match(verify, /\[switch\]\$NoExit/);
+  assert.match(verify, /Invoke-OllamaGenerate/);
+  assert.match(verify, /\$workingModel/);
   assert.match(verify, /\$critical = @\("ollama-tags", "ollama-model", "ollama-inference", "nexusrenn-gateway", "council-gateway-8799"\)/);
   assert.match(verify, /if \(-not \$NoExit -and -not \$result\.ok\)/);
 });
@@ -62,6 +67,8 @@ test('supervisor does not kill preserved known-good council', () => {
   assert.match(supervisor, /EF_COUNCIL_STATION_ROOT/);
   assert.match(supervisor, /EF_COUNCIL_LAUNCH_SECRET/);
   assert.match(supervisor, /EF_AI_RECOVERY_SECRET/);
+  assert.match(supervisor, /Import-RuntimeSettings/);
+  assert.match(supervisor, /known-good-runtime\.env/);
   assert.match(supervisor, /council-gateway\.err\.log/);
   assert.match(supervisor, /\$Minutes/);
   assert.match(packagedGateway, /EF Ventures Nexus Council gateway/);
