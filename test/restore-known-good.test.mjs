@@ -26,6 +26,8 @@ test('restore is audit-only unless Apply is passed and backs up before writes', 
   assert.match(restore, /Copy-Item -LiteralPath \(Join-Path \$PSScriptRoot/);
   assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("stash", "push", "-u"/);
   assert.match(restore, /Invoke-Checked -File "git" -ArgumentList @\("switch", "-C"/);
+  assert.match(restore, /& \$File @ArgumentList 2>&1/);
+  assert.doesNotMatch(restore, /ProcessStartInfo/);
   assert.doesNotMatch(restore, /\[string\[\]\]\$Args/);
 });
 

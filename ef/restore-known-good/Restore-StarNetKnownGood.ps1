@@ -46,19 +46,16 @@ function Ensure-Directory([string]$Path) {
   if ($Apply -and -not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
 }
 function Invoke-Checked([string]$File, [string[]]$ArgumentList, [string]$WorkingDirectory = $PWD.Path) {
-  $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName = $File
-  foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add($a) }
-  $psi.WorkingDirectory = $WorkingDirectory
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
-  $psi.UseShellExecute = $false
-  $p = [System.Diagnostics.Process]::Start($psi)
-  $p.WaitForExit()
-  $stdout = $p.StandardOutput.ReadToEnd()
-  $stderr = $p.StandardError.ReadToEnd()
-  if ($p.ExitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit $($p.ExitCode): $stderr $stdout" }
-  return $stdout.Trim()
+  Push-Location -LiteralPath $WorkingDirectory
+  try {
+    $output = & $File @ArgumentList 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    Pop-Location
+  }
+  $text = ($output | Out-String).Trim()
+  if ($exitCode -ne 0) { throw "$File $($ArgumentList -join ' ') failed with exit ${exitCode}: $text" }
+  return $text
 }
 function Test-HttpJson([string]$Url, [int]$TimeoutSec = 4) {
   try { return Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec -ErrorAction Stop } catch { return $null }
