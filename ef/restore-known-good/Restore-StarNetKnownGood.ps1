@@ -8,6 +8,7 @@ and registers a limited current-user startup task for the supervisor.
 [CmdletBinding()]
 param(
   [switch]$Apply,
+  [switch]$RollbackRepo,
   [switch]$Quiet,
   [string]$StarNetPath = "C:\Users\Ricardo\Documents\GitHub\starnet",
   [string]$NexusPath = "C:\Users\Ricardo\Documents\GitHub\efv-nexus-hub",
@@ -176,8 +177,12 @@ if ($Apply) {
 }
 $ollamaPort = Detect-OllamaPort $CouncilModel
 if ($null -eq $ollamaPort) { $ollamaPort = 11434; Add-Action "ollama-detect" $false "model $CouncilModel not reachable; defaulting to $ollamaPort" } else { Add-Action "ollama-detect" $true "port=$ollamaPort model=$CouncilModel" }
-Restore-GitRepo $StarNetPath $StarNetBranch $StarNetCommit "known-good-council-20260928"
-if (Test-Path -LiteralPath $NexusPath) { Restore-GitRepo $NexusPath $NexusBranch $NexusCommit "known-good-nexusrenn-20260924" } else { Add-Action "git:known-good-nexusrenn-20260924" $false "missing Nexus repo $NexusPath" }
+if ($RollbackRepo) {
+  Restore-GitRepo $StarNetPath $StarNetBranch $StarNetCommit "known-good-council-20260928"
+  if (Test-Path -LiteralPath $NexusPath) { Restore-GitRepo $NexusPath $NexusBranch $NexusCommit "known-good-nexusrenn-20260924" } else { Add-Action "git:known-good-nexusrenn-20260924" $false "missing Nexus repo $NexusPath" }
+} else {
+  Add-Action "git-rollback" $true "skipped by default; use -RollbackRepo only after Council gateway is healthy"
+}
 Configure-Codex $StarNetPath
 Write-RuntimeSettings $ollamaPort
 Register-SupervisorTask

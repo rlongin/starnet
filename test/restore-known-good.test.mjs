@@ -20,7 +20,10 @@ test('restore pins known-good branches and model settings', () => {
 
 test('restore is audit-only unless Apply is passed and backs up before writes', () => {
   assert.match(restore, /\[switch\]\$Apply/);
+  assert.match(restore, /\[switch\]\$RollbackRepo/);
   assert.match(restore, /if \(\$Apply\)/);
+  assert.match(restore, /if \(\$RollbackRepo\)/);
+  assert.match(restore, /git-rollback/);
   assert.match(restore, /Backup-File \$cfgPath/);
   assert.match(restore, /restore-package/);
   assert.match(restore, /Copy-Item -LiteralPath \(Join-Path \$PSScriptRoot/);

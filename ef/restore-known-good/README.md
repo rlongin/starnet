@@ -18,10 +18,16 @@ Run audit-only first:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1
 ```
 
-Apply restore:
+Apply the repair without touching your repo checkout:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1 -Apply
+```
+
+Only after the Council gateway is healthy, use `-RollbackRepo` if you still want the script to switch the local StarNet and Nexus repos to the pinned rollback branches:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ef\restore-known-good\Restore-StarNetKnownGood.ps1 -Apply -RollbackRepo
 ```
 
 What `-Apply` does:
@@ -29,7 +35,7 @@ What `-Apply` does:
 1. Copies this restore package to `C:\NexusAI\KnownGoodRestore\restore-package` so the helpers remain available after the repo is switched to the older known-good commit.
 2. Backs up Codex config and writes a GPT-5.5/on-request/workspace-write config.
 3. Creates `C:\NexusAI\KnownGoodRestore\START-STARNET-CODEX-GPT55.cmd` for local ChatGPT/Codex work on the StarNet repo.
-4. Stashes uncommitted repo changes, then checks out local restore branches pinned to the known-good commits.
+4. Leaves the repo checkout alone by default. With `-RollbackRepo`, stashes uncommitted repo changes, then checks out local restore branches pinned to the known-good commits.
 5. Writes `known-good-runtime.env` with the Council/Nexus ReNN local model settings.
 6. Registers a current-user Windows startup task named `EF StarNet KnownGood Supervisor` that checks health after login, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
 7. Runs verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
