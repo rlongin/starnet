@@ -18,11 +18,11 @@ function Test-Url($Url, $TimeoutSec = 5) { try { $r=Invoke-WebRequest -UseBasicP
 
 function Start-OllamaIfPresent() {
   if ((Test-Url "http://127.0.0.1:$OllamaPort/api/tags") -ne 0) { return }
-  $candidates = @(
+  $candidates = @( @(
     "C:\NexusAI\Ollama-Recovery\bin\ollama.exe",
     "C:\Program Files\Ollama\ollama.exe",
     (Get-Command ollama.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
-  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } )
   if (-not $candidates -or $candidates.Count -eq 0) { Log "ollama missing for port $OllamaPort"; return }
   $env:OLLAMA_HOST = "127.0.0.1:$OllamaPort"
   Start-Process -FilePath $candidates[0] -ArgumentList @("serve") -WindowStyle Hidden
