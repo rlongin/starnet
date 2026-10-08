@@ -37,7 +37,14 @@ What `-Apply` does:
 3. Creates `C:\NexusAI\KnownGoodRestore\START-STARNET-CODEX-GPT55.cmd` for local ChatGPT/Codex work on the StarNet repo.
 4. Leaves the repo checkout alone by default. With `-RollbackRepo`, stashes uncommitted repo changes, then checks out local restore branches pinned to the known-good commits.
 5. Writes `known-good-runtime.env` with the Council/Nexus ReNN local model settings.
-6. Registers a current-user Windows startup task named `EF StarNet KnownGood Supervisor` that checks health after login, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
-7. Runs verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
+6. Creates persistent Council launch/recovery secrets under `C:\NexusAI\KnownGoodRestore` so the packaged Council gateway can actually start after a reboot.
+7. Registers and starts a current-user Windows watchdog task named `EF StarNet KnownGood Supervisor`. It runs for seven days per login, checks health every minute, starts Ollama if the configured loopback port is down, and restarts only the known gateway pieces when they are missing. If the older restored branch no longer has `scripts\ef-nexus-council-gateway.mjs`, it launches the packaged gateway copy against the restored station root.
+8. Runs one repair cycle immediately, waits briefly, then retries verification against Codex CLI, Ollama, Nexus ReNN gateway, Council `8798`, and Council gateway `8799`.
 
 It does not erase workspace data, regenerate encrypted launch keys, disable Bitdefender, change production Lovable publishing, or stop the preserved `8798` Council station. If Bitdefender blocks a launch, add a narrow allow rule for the exact `node.exe`, `ollama.exe`, or `codex.exe` path shown in the restore log rather than disabling protection or excluding whole folders.
+
+The fastest recovery command after a crash is:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\NexusAI\KnownGoodRestore\restore-package\Start-StarNetKnownGoodSupervisor.ps1 -Minutes 10
+```
