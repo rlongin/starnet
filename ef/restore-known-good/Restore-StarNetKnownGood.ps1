@@ -52,7 +52,7 @@ function Invoke-Checked([string]$File, [string[]]$ArgumentList, [string]$Working
   $psi.WorkingDirectory = $WorkingDirectory
   $escaped = @()
   foreach ($a in $ArgumentList) {
-    $escaped += '"' + (String $a).Replace('\', '\\').Replace('"', '\"') + '"'
+    $escaped += '"' + ([string]$a).Replace('\', '\\').Replace('"', '\"') + '"'
   }
   $psi.Arguments = $escaped -join ' '
   $psi.RedirectStandardOutput = $true
@@ -96,6 +96,18 @@ function Backup-File([string]$Path) {
 function Write-TextFile([string]$Path, [string]$Content) {
   Ensure-Directory (Split-Path -Parent $Path)
   if ($Apply) { Set-Content -LiteralPath $Path -Value $Content -Encoding UTF8 }
+}
+function New-Secret([int]$Bytes = 48) {
+  $buffer = New-Object byte[] $Bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+  return [Convert]::ToBase64String($buffer).TrimEnd('=').Replace('+','-').Replace('/','_')
+}
+function Ensure-SecretFile([string]$Path, [int]$MinLength) {
+  $existing = ""
+  if (Test-Path -LiteralPath $Path) { $existing = (Get-Content -LiteralPath $Path -Raw).Trim() }
+  if ($existing.Length -ge $MinLength) { Add-Action "secret:$([IO.Path]::GetFileName($Path))" $true "existing"; return }
+  if ($Apply) { Write-TextFile $Path (New-Secret 48) }
+  Add-Action "secret:$([IO.Path]::GetFileName($Path))" $true "created"
 }
 function Restore-GitRepo([string]$Path, [string]$Branch, [string]$Commit, [string]$LocalBranch) {
   if (-not (Test-Path -LiteralPath (Join-Path $Path ".git"))) { Add-Action "git:$LocalBranch" $false "missing repo $Path"; return }
@@ -155,16 +167,50 @@ OLLAMA_BASE_URL=$base
   Write-TextFile $envPath $content
   Add-Action "runtime-env" $true $envPath @{ ollamaPort=$OllamaPort; councilModel=$CouncilModel; nexusRoute=$NexusRennModelRoute }
 }
+function Ensure-CouncilSecrets() {
+  Ensure-SecretFile (Join-Path $BackupRoot "council-launch-secret.txt") 32
+  Ensure-SecretFile (Join-Path $BackupRoot "council-recovery-secret.txt") 24
+}
 function Register-SupervisorTask() {
   $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
   if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "startup-task" $false "missing $supervisor"; return }
   if ($Apply) {
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`""
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$supervisor`" -StarNetPath `"$StarNetPath`" -BackupRoot `"$BackupRoot`" -Minutes 10080"
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 7) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor" -Action $action -Trigger $trigger -Settings $settings -Description "Restarts EF Council/Nexus local health checks after login." -Force | Out-Null
+    try { Start-ScheduledTask -TaskName "EF StarNet KnownGood Supervisor"; Add-Action "watchdog-start" $true "started now" }
+    catch {
+      try {
+        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$supervisor,"-StarNetPath",$StarNetPath,"-BackupRoot",$BackupRoot,"-Minutes","10080") -WindowStyle Hidden
+        Add-Action "watchdog-start" $true "direct fallback started"
+      } catch {
+        Add-Action "watchdog-start" $false $_.Exception.Message
+      }
+    }
   }
-  Add-Action "startup-task" $true "EF StarNet KnownGood Supervisor"
+  Add-Action "startup-task" $true "EF StarNet KnownGood Supervisor continuous watchdog"
+}
+function Invoke-SupervisorNow() {
+  $supervisor = Join-Path $packageRoot "Start-StarNetKnownGoodSupervisor.ps1"
+  if (-not (Test-Path -LiteralPath $supervisor)) { Add-Action "supervisor-now" $false "missing $supervisor"; return }
+  if ($Apply) {
+    & $supervisor -StarNetPath $StarNetPath -BackupRoot $BackupRoot -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort
+    Start-Sleep -Seconds 8
+  }
+  Add-Action "supervisor-now" $true "ran one repair cycle"
+}
+function Invoke-VerificationWithRetry() {
+  $verifyScript = Join-Path $packageRoot "Verify-StarNetKnownGood.ps1"
+  $verifyResult = $null
+  $ok = $false
+  for ($i = 1; $i -le 3; $i++) {
+    $verifyResult = & $verifyScript -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort -NexusRennModelRoute $NexusRennModelRoute -NoExit -Quiet
+    try { $ok = [bool](($verifyResult | ConvertFrom-Json).ok) } catch { $ok = $false }
+    if ($ok) { break }
+    if ($Apply -and $i -lt 3) { Start-Sleep -Seconds 8 }
+  }
+  Add-Action "verification" $ok "ok=$ok" $verifyResult
 }
 
 Ensure-Directory $runRoot
@@ -185,10 +231,10 @@ if ($RollbackRepo) {
 }
 Configure-Codex $StarNetPath
 Write-RuntimeSettings $ollamaPort
+Ensure-CouncilSecrets
 Register-SupervisorTask
-
-$verify = & (Join-Path $packageRoot "Verify-StarNetKnownGood.ps1") -CouncilModel $CouncilModel -OllamaPort $ollamaPort -NexusGatewayPort $NexusGatewayPort -KnownGoodCouncilPort $KnownGoodCouncilPort -CouncilGatewayPort $CouncilGatewayPort -NexusRennModelRoute $NexusRennModelRoute -Quiet
-Add-Action "verification" ($LASTEXITCODE -eq 0) "exit=$LASTEXITCODE" $verify
+Invoke-SupervisorNow
+Invoke-VerificationWithRetry
 $result = [ordered]@{ applied = [bool]$Apply; timestamp = (Get-Date).ToString("o"); backupRoot = $runRoot; actions = $actions }
 $json = $result | ConvertTo-Json -Depth 12
 if ($Apply) { Set-Content -LiteralPath (Join-Path $runRoot "restore-result.json") -Value $json -Encoding UTF8 }
