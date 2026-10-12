@@ -63,6 +63,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   const sfx = n => { try { if (typeof SFX === 'object' && SFX[n]) SFX[n](); } catch (_) {} };
 
   const KEY = 'starnet.station.v1';
+  const THEME_KEY = 'starnet.appearance.theme.v1';
   const THEMES = [['amber', '#ffaa33'], ['green', '#3dff70'], ['blue', '#46c8ff'], ['purple', '#b46bff'], ['red', '#ff4136'], ['white', '#e8f0e8']];
 
   let present = [];          // agent objects currently on the station
@@ -177,6 +178,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return blank();
   }
   let store = load();
+  // Appearance is independently recoverable if the station snapshot is replaced.
+  try {
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme && (savedTheme === 'custom' || THEMES.some(([name]) => name === savedTheme))) {
+      store.settings.theme = savedTheme;
+    }
+  } catch (_) {}
   let lastSaveOk = true;
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(store)); lastSaveOk = true; return true; }
@@ -9857,7 +9865,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     store.settings.theme = t;
     const hs = PRESET_HS[t];   // keep the CUSTOM sliders in lockstep with a preset picked at commission
     if (hs) { store.settings.themeHue = hs[0]; store.settings.themeSat = hs[1]; }
-    applySettings(); save();
+    applySettings();
+    try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
+    save();
   }
   function getTheme() { return store.settings.theme; }
 
