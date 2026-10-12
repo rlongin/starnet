@@ -196,7 +196,7 @@ const Widgets = (() => {
   const CATALOG = {
     crew: {
       stats: true,
-      lbl: 'CREW', tip: 'Agents in your current station roster, including the overseer.',
+      lbl: 'CREW', tip: 'Agents in your current station roster, including the CEO.',
       paint() { return { val: typeof App !== 'undefined' && App.crewCount ? String(App.crewCount()) : null, sub: 'station roster' }; }
     },
     active: { stats: true, lbl: 'ACTIVE COMMS', tip: 'Confirmed running conversations in COMMS. Connecting requests are shown separately; background jobs are not included.', paint: () => commsReadout(false) },

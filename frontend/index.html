@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STARNET</title>
+<title>EF AGENT COUNCIL</title>
 <!-- VT323 — THE STARNET FONT — has exactly ONE source: the local @font-face in css/style.css
      (frontend/assets/fonts/vt323.woff2, SIL OFL, U+0-10FFFF — the whole range, no subsets).
      There is NO remote font link here and there must never be one again. The Google Fonts
@@ -61,9 +61,9 @@
      ends in show(<screen>) (splash / game / connect / future / recovery), which clears this veil — so a
      returning Commander never flashes the CREATE console on the way to their station (the old bug: #screen-connect
      carried the static .active). Truthful telemetry: it asserts nothing about state — just "connecting". -->
-<section id="screen-boot" class="screen active" aria-label="StarNet booting" aria-hidden="true">
+<section id="screen-boot" class="screen active" aria-label="EF Agent Council booting" aria-hidden="true">
   <div class="boot-veil">
-    <div class="boot-mark">◆ STARNET</div>
+    <div class="boot-mark">◆ EF AGENT COUNCIL</div>
     <div class="boot-line">establishing local uplink<span class="boot-dots"></span></div>
   </div>
 </section>
@@ -73,7 +73,7 @@
      perspective grid floor, the big phosphor wordmark, and a blinking PRESS ANY KEY. Any key / click /
      tap advances into CREATE YOUR OVERSEER (app.js showSplash()). Resume/recovery paths never route
      here — a returning Commander lands in the station or the RESUME console, not a title card. -->
-<section id="screen-splash" class="screen" aria-label="StarNet boot screen">
+<section id="screen-splash" class="screen" aria-label="EF Agent Council boot screen">
   <canvas id="sp-stars" aria-hidden="true"></canvas>
   <div class="sp-nebula" aria-hidden="true"></div>
   <div class="sp-floor" aria-hidden="true"><div class="sp-grid"></div></div>
@@ -102,17 +102,17 @@
     <span class="cc-bracket cc-bl">└</span><span class="cc-bracket cc-br">┘</span>
 
     <header class="cc-console-head ov-head">
-      <div class="cc-titlebar"><span class="ov-wordmark" role="img" aria-label="StarNet"></span><span id="cc-mode" class="cc-tb-mode">GENESIS</span><span class="cc-tb-phosphor"><span class="cc-tb-plabel">COLOR</span><span id="phosphor-swatches" class="phosphor-swatches" role="group" aria-label="Console phosphor tint"></span></span></div>
+      <div class="cc-titlebar"><div class="ef-council-brand" role="img" aria-label="EF Agent Council"><b>EF AGENT COUNCIL</b><span>VENTURES</span></div><span id="cc-mode" class="cc-tb-mode">GENESIS</span><span class="cc-tb-phosphor"><span class="cc-tb-plabel">COLOR</span><span id="phosphor-swatches" class="phosphor-swatches" role="group" aria-label="Console phosphor tint"></span></span></div>
       <div class="cc-title-row ov-title-row">
-        <h2 id="cc-title">Create your Overseer</h2>
-        <span id="cc-sub" class="ov-sub">the first mind you wake is your <b>OVERSEER</b> — it runs the station and recruits every agent after it.</span>
+        <h2 id="cc-title">Create your Chief Executive Officer</h2>
+        <span id="cc-sub" class="ov-sub">the first mind you wake is your <b>CEO</b> — it runs the station and recruits every agent after it.</span>
       </div>
       <ol class="ov-journey" aria-label="Getting started"><li><b>01</b> Create your agent</li><li><b>02</b> Wake &amp; get acquainted</li><li><b>03</b> Start your first task</li></ol>
       <!-- RESUME banner — shown only when re-entering an existing station (recovery / disconnect re-entry).
            initConnect(name, true, agent) unhides this and disables the identity fields; a fresh create hides it. -->
       <div id="cc-recovery" class="ov-recovery hidden" role="status"></div>
-      <nav class="ov-setup-nav" aria-label="Overseer setup">
-        <button type="button" data-setup-step="identity" aria-controls="ov-identity"><span>01</span> Your Overseer</button>
+      <nav class="ov-setup-nav" aria-label="Chief Executive Officer setup">
+        <button type="button" data-setup-step="identity" aria-controls="ov-identity"><span>01</span> Your CEO</button>
         <button type="button" data-setup-step="brain" aria-controls="ov-brain"><span>02</span> Connect a brain</button>
       </nav>
     </header>
@@ -131,8 +131,8 @@
         </div>
 
         <div class="ov-nameplate">
-          <div class="ov-np-name" id="np-name">OVERSEER</div>
-          <div class="ov-np-role">Overseer <span class="ov-dot">·</span> <span id="np-mode">asks for approval</span></div>
+          <div class="ov-np-name" id="np-name">CEO</div>
+          <div class="ov-np-role">CEO <span class="ov-dot">·</span> <span id="np-mode">asks for approval</span></div>
           <figcaption id="skin-stage-name" class="skin-stage-name ov-skinname"></figcaption>
         </div>
 
@@ -153,9 +153,9 @@
         </div>
 
         <div class="ov-field">
-          <label>Personality <span class="dim">How your Overseer talks to you.</span></label>
+          <label>Personality <span class="dim">How your CEO talks to you.</span></label>
           <div id="voice-archetypes" class="ov-vchips" role="group" aria-label="Personality"></div>
-          <p id="ov-personality-help" class="ov-help" role="status">Fine-tune later in your Overseer’s settings.</p>
+          <p id="ov-personality-help" class="ov-help" role="status">Fine-tune later in your CEO’s settings.</p>
           <div id="voice-preview" class="voice-preview ov-vpreview"></div>
           <!-- Voice customization (fine-tune dials + free-text note) REMOVED from genesis (2026-07-09
                decision) — the archetype chip is the whole voice choice here. Agents that already carry
@@ -163,7 +163,7 @@
         </div>
 
         <div class="ov-field">
-          <label>Working style <span class="dim">Choose when your Overseer should check with you.</span></label>
+          <label>Working style <span class="dim">Choose when your CEO should check with you.</span></label>
           <div id="approval-picker" class="ov-cards ov-approve" role="group" aria-label="Approval mode"></div>
           <div class="ov-crewnote">Full power allows actions across your computer without approval prompts. You can change this later.</div>
         </div>
@@ -337,7 +337,7 @@
         <div id="connect-msg" class="msg" role="status" aria-live="polite"></div>
         <button id="btn-back" class="btn">‹ BACK</button>
         <button id="btn-setup-next" class="btn-xl" type="button">CONNECT A BRAIN →</button>
-        <button id="btn-wake" class="btn-xl">⏼ WAKE OVERSEER ▸</button>
+        <button id="btn-wake" class="btn-xl">⏼ WAKE CEO ▸</button>
       </div>
     </div>
   </div>
@@ -499,7 +499,7 @@
      var(--ph) per theme and stay crisp at any DPR / TEXT SIZE. The SVG is the master art's OWN
      letterforms traced out of its perceived-density field (dev/trace-logo.mjs), NOT a redraw; the
      title screen keeps the full-size master PNG, where the ASCII-digit texture actually reads. -->
-<div id="logo"><span class="logo-img" role="img" aria-label="STARNET"></span></div>
+<div id="logo"><div class="ef-council-brand" role="img" aria-label="EF Agent Council"><b>EF AGENT COUNCIL</b><span>VENTURES</span></div></div>
 
 <section id="screen-game" class="screen">
 

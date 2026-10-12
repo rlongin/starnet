@@ -131,7 +131,7 @@ window.OverseerSetup = (() => {
     el('btn-setup-next').onclick = () => select('brain');
     if (!recovery) {
       el('btn-back').classList.remove('hidden');
-      el('btn-back').textContent = '← YOUR OVERSEER';
+      el('btn-back').textContent = '← YOUR CEO';
       el('btn-back').onclick = () => select('identity');
       el('in-name').onkeydown = event => {
         if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); select('brain'); }

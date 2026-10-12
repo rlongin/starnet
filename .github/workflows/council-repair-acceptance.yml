@@ -1,0 +1,81 @@
+name: Council repair acceptance
+on:
+  push:
+    branches: [fix/council-local-repair-20261007]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sidecar
+            frontend/app
+            shared
+            test
+            ef/repair-agent
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install isolated test dependency
+        run: npm install --prefix .council-test-runtime --ignore-scripts --no-audit --no-fund ajv@8.20.0
+      - name: Candidate gateway and local-agent tests
+        run: node --test ef/repair-agent/tests/*.test.mjs
+      - name: Real runtime recovery and conversation persistence
+        shell: bash
+        run: |
+          git apply --check ef/repair-agent/candidate/member-recovery.patch
+          git apply ef/repair-agent/candidate/member-recovery.patch
+          export NODE_PATH="$PWD/.council-test-runtime/node_modules"
+          node test/ef-member-recovery.http.test.js
+          node test/workspace-lineage.http.test.js
+          node test/casual-response-safety.e2e.test.js
+          node test/tool-projection.e2e.test.js
+          node test/station-recovery.test.js
+      - name: Windows PowerShell syntax and encrypted-key compatibility
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($file in Get-ChildItem 'ef/repair-agent/candidate' -Filter '*.ps1') {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          $secure = ConvertTo-SecureString 'fixture-only-dpapi-key-32-characters' -AsPlainText -Force
+          $encrypted = $secure | ConvertFrom-SecureString
+          $restored = $encrypted | ConvertTo-SecureString
+          if (([pscredential]::new('test', $restored)).GetNetworkCredential().Password -ne 'fixture-only-dpapi-key-32-characters') { throw 'DPAPI round trip failed' }
+      - name: Windows supervisor crash and hang acceptance
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./ef/repair-agent/tests/windows-supervisor.test.ps1
+      - name: Check official pinned local-agent entry
+        run: |
+          npm install --prefix .codex-cli-check --no-audit --no-fund @openai/codex@0.160.1
+          node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --version
+          node .codex-cli-check/node_modules/@openai/codex/bin/codex.js --help
+
+  package:
+    needs: acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ef/repair-agent
+      - name: Build verified local-agent download
+        run: python3 ef/repair-agent/build-bundle.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Council-Local-Repair-Agent
+          path: Council-Local-Repair-Agent/
+          if-no-files-found: error
+          retention-days: 90

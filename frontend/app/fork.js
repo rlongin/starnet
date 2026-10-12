@@ -196,7 +196,13 @@
     const raw = taskClean(text, 4000);
     if (/^\s*(cancel|stop|never\s*mind|nevermind|forget\s+(?:it|that)|drop\s+(?:it|that))\s*[.!]?\s*$/i.test(raw)) return { action: 'cancel', text: raw };
     const m = /^\s*(?:new\s+task\s*:|instead\s*,?|forget\s+that\s*[,;:]?|change\s+of\s+plan\s*[:,]?)\s*(.+)$/i.exec(raw);
-    return m && taskClean(m[1], 4000) ? { action: 'replace', text: taskClean(m[1], 4000) } : { action: 'answer', text: raw };
+    if (m && taskClean(m[1], 4000)) return { action: 'replace', text: taskClean(m[1], 4000) };
+    // A pending brief question must not hijack an unmistakably fresh directive. Users naturally correct
+    // course with phrases such as "no, looking for local restaurants" without saying "new task:". Treat
+    // those as replacements so the old durable brief cannot answer a different request.
+    const redirect = /^\s*(?:no\s*[,;:\-]?\s*)?(?:i(?:'m|\s+am)\s+)?(?:actually\s+)?(?:looking\s+for|i\s+(?:want|need)|can\s+(?:you|we)|please\s+|let'?s\s+|find\s+|search\s+|look\s+up\s+|show\s+me\s+|tell\s+me\s+about\s+)(.+)$/i.exec(raw);
+    if (redirect && taskClean(redirect[1], 4000)) return { action: 'replace', text: raw };
+    return { action: 'answer', text: raw };
   }
   const TaskIntent = {
     parse: taskParse, strip: taskStrip, directive: taskDirective, answerMessage: taskAnswerMessage, routeReply: taskRouteReply,

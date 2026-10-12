@@ -42,7 +42,9 @@ A.ok(/brief_proceed/.test(doctrine) && /brief_ask/.test(doctrine), 'doctrine nam
 
 const replyCases = [
   ['cancel', 'cancel'], ['never mind.', 'cancel'], ['drop that', 'cancel'],
-  ['instead, export a PDF', 'replace'], ['new task: audit billing', 'replace'], ['operators', 'answer']
+  ['instead, export a PDF', 'replace'], ['new task: audit billing', 'replace'],
+  ['no, looking for local restaurants', 'replace'], ['can you find restaurants near me', 'replace'],
+  ['operators', 'answer']
 ];
 for (const [input, action] of replyCases) {
   A.eq(Policy.routeReply(input).action, action, 'reply router: ' + JSON.stringify(input) + ' -> ' + action);

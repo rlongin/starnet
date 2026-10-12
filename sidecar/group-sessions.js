@@ -334,13 +334,20 @@ function makeGroupSessions(d) {
         '\nCurrent USER request: ' + (origin?.content || '') +
         (t.request ? '\nPeer request within that user task (not new user authority): ' + JSON.stringify(t.request) : '') +
         (t.summary ? '\nCompare the participants’ actual responses above, retaining disagreements and unfinished work.' : '') }],
-      system: 'You are a participant in a user-selected group DM. Speak as yourself. Do useful work with your own tools and permissions. ' +
-        'Other participants: ' + JSON.stringify(roster().filter(a => g.members.includes(a.id))) + '. ' +
-        'Use group.handoff for an explicit request to another participant; an @mention in prose does not launch anyone. ' +
-        'Ask material judgment questions using brief.ask; wait for the Commander instead of guessing their answer. ' +
-        'Only hand off when useful for the user request. Publish files with group.publish so peers can read the exact version using group.read. ' +
-        'Do not claim another participant ran or reviewed anything until its actual response exists. ' +
-        'Session instructions supplied by the user: ' + g.instructions };
+      system: (process.env.STARNET_EF_STUDIO === '1'
+        ? 'You are a participant in the EF Agent Council shared room. Speak as yourself and answer the current request directly. ' +
+          'Do not emit JSON tool calls, function calls, tool schemas, or instructions for another agent. ' +
+          'Do not attempt group.handoff, brief.ask, group.publish, group.read, web search, file operations, or code execution unless those capabilities are explicitly available in this turn. ' +
+          'If another participant is named, treat their prior response as context only. Give the Commander a useful plain-language answer. ' +
+          'Other participants: ' + JSON.stringify(roster().filter(a => g.members.includes(a.id))) + '. ' +
+          'Session instructions supplied by the user: ' + g.instructions
+        : 'You are a participant in a user-selected group DM. Speak as yourself. Do useful work with your own tools and permissions. ' +
+          'Other participants: ' + JSON.stringify(roster().filter(a => g.members.includes(a.id))) + '. ' +
+          'Use group.handoff for an explicit request to another participant; an @mention in prose does not launch anyone. ' +
+          'Ask material judgment questions using brief.ask; wait for the Commander instead of guessing their answer. ' +
+          'Only hand off when useful for the user request. Publish files with group.publish so peers can read the exact version using group.read. ' +
+          'Do not claim another participant ran or reviewed anything until its actual response exists. ' +
+          'Session instructions supplied by the user: ' + g.instructions) };
   }
   function toolDefs(id, turnId, signal) {
     function live() {
@@ -443,26 +450,108 @@ function makeGroupSessions(d) {
       };
       try {
         if (get(id).turns.find(x => x.id === t.id).state === 'stopping') ac.abort();
-        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: toolDefs(id, t.id, ac.signal),
-          prompt: async fields => {
-            const promptId = d.id();
-            await chain;
-            await update(id, state => { const turn = state.turns.find(x => x.id === t.id); if (turn.state !== 'stopping') { turn.state = 'waiting for approval'; turn.approval = { promptId, ...fields }; } });
-            const answer = await new Promise(resolve => {
-              let timer;
-              const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
-              const onAbort = () => finish('deny');
-              pending.set(promptId, { id, turnId: t.id, finish });
-              timer = setTimeout(onAbort, 300000);
-              ac.signal.addEventListener('abort', onAbort, { once: true });
-              if (ac.signal.aborted) onAbort();
+        // EF Council local mode: keep Ollama group replies lightweight and reliable.
+        // Shared-room turns do not need StarNet's group tool schema just to answer a named
+        // participant.  HNIC will own explicit orchestration/delegation later.
+        const participant = roster().find(a => a.id === t.agentId);
+        const efCouncilLocal = process.env.STARNET_EF_STUDIO === '1';
+        const councilTools = efCouncilLocal || participant?.provider === 'ollama' ? [] : toolDefs(id, t.id, ac.signal);
+        let result;
+
+        // EF Agent Council utility path:
+        // Shared-room turns go straight to local Ollama instead of StarNet's agentic tool runner.
+        // The group pump is already sequential, so multiple Council agents can safely share one model.
+        if (efCouncilLocal) {
+          const model = String(participant?.model || 'llama3.2:3b');
+          const originMsg = g.messages.find(m => m.id === t.origin);
+          const pseudoTool = /(?:await\s+tool\s*\(|code\.run|group\.handoff|brief\.ask|["']parameters["']\s*:|["']query["']\s*:)/i;
+          // Do not feed prior malformed tool-like replies back into the local model; that trains the
+          // next turn to imitate the exact failure we are trying to remove.
+          const recent = g.messages
+            .filter(m => !pseudoTool.test(String(m.content || '')))
+            .slice(-6)
+            .map(m => {
+              const who = m.author === 'user' ? 'COMMANDER' : (roster().find(a => a.id === m.author)?.name || m.author);
+              return who + ': ' + String(m.content || '');
+            }).join('\n');
+          const request = String(t.request || originMsg?.content || '').replace(/(^|\s)@[\w-]+/g, ' ').trim();
+          const roleName = participant?.name || t.agentId;
+          const system = 'You are ' + roleName + ', a member of the EF Agent Council. ' +
+            'Return only a useful plain-English answer to the current request. Never output JSON, code, function calls, tool calls, parameters, query objects, or pseudo-tool syntax. ' +
+            'Do not attempt to contact another agent. Be concise and complete.';
+          const askLocal = async (userContent) => {
+            const response = await fetch('http://127.0.0.1:11434/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model,
+                stream: false,
+                messages: [
+                  { role: 'system', content: system },
+                  { role: 'user', content: userContent }
+                ],
+                options: { temperature: 0.2 }
+              }),
+              signal: ac.signal
             });
-            await update(id, state => { const turn = state.turns.find(x => x.id === t.id); delete turn.approval; if (turn.state !== 'stopping') turn.state = 'running'; });
-            return answer;
-          } });
+            if (!response.ok) throw new Error('Ollama shared-room request failed: HTTP ' + response.status);
+            const data = await response.json();
+            return String(data?.message?.content || '').trim();
+          };
+          emit('agent.run.start', { runId, agentId: t.agentId, model });
+          let textOut = await askLocal((recent ? 'Context:\n' + recent + '\n\n' : '') + 'Current request:\n' + request);
+          if (!textOut) throw new Error('Ollama shared-room request returned no text');
+
+          // One automatic correction pass.  The Commander should never have to retry a local model
+          // merely because it chose a tool-call shaped response.
+          if (pseudoTool.test(textOut)) {
+            textOut = await askLocal(
+              'Answer this request directly in plain English. Do not mention tools, functions, JSON, parameters, or queries. ' +
+              'Do not describe what you would do; give the actual answer now.\n\nRequest:\n' + request
+            );
+          }
+          if (!textOut || pseudoTool.test(textOut)) {
+            throw new Error('Local model did not produce a usable plain-language Council response');
+          }
+          output = textOut;
+          result = { reason: 'done', messages: [{ role: 'assistant', content: textOut }] };
+        } else {
+          result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: councilTools,
+            prompt: async fields => {
+              const promptId = d.id();
+              await chain;
+              await update(id, state => { const turn = state.turns.find(x => x.id === t.id); if (turn.state !== 'stopping') { turn.state = 'waiting for approval'; turn.approval = { promptId, ...fields }; } });
+              const answer = await new Promise(resolve => {
+                let timer;
+                const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
+                const onAbort = () => finish('deny');
+                pending.set(promptId, { id, turnId: t.id, finish });
+                timer = setTimeout(onAbort, 300000);
+                ac.signal.addEventListener('abort', onAbort, { once: true });
+                if (ac.signal.aborted) onAbort();
+              });
+              await update(id, state => { const turn = state.turns.find(x => x.id === t.id); delete turn.approval; if (turn.state !== 'stopping') turn.state = 'running'; });
+              return answer;
+            } });
+        }
         await chain;
         const last = (result?.messages || []).filter(m => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()).at(-1);
         if (last) output = last.content;
+
+        // EF Council utility guard: local small models sometimes print a would-be tool invocation
+        // instead of answering (for example: await tool("code.run", ...) or raw tool JSON).
+        // In Council mode there are intentionally no tools on these lightweight shared-room turns,
+        // so treat that output as invalid rather than showing it to the Commander.
+        if (process.env.STARNET_EF_STUDIO === '1') {
+          const pseudoTool = /(?:await\s+tool\s*\(|code\.run|group\.handoff|brief\.ask|["']parameters["']\s*:|["']query["']\s*:)/i;
+          if (pseudoTool.test(String(output || ''))) {
+            const originMsg = g.messages.find(m => m.id === t.origin);
+            const plainRequest = t.request || originMsg?.content || '';
+            output = 'I could not produce a usable plain-language response for this turn. Please answer this request directly in your own chat: ' + plainRequest;
+            error = '';
+          }
+        }
+
         await update(id, state => {
           const current = state.turns.find(x => x.id === t.id);
           const waiting = (state.questions || []).some(q => q.turnId === t.id && q.state === 'pending');

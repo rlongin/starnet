@@ -8309,6 +8309,32 @@ const Chat = (() => {
     return out;
   }
 
+  // EF Council local-model guard: a fresh user prompt must not be mistaken for the answer to a stale
+  // Task Brief question, and provider-emitted tool JSON must never become conversational prose.
+  function looksLikeFreshDirective(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    if (/^(yes|no|yeah|yep|nope|sure|ok(?:ay)?|continue|cancel|use your judgment|either|both|all|none)\b/i.test(t) && t.length < 80) return false;
+    return /[?]$/.test(t) || /^(what|where|when|why|who|how|which|can|could|would|should|tell|show|find|search|look|give|list|explain|compare|write|make|create|fix|build|check|help)\b/i.test(t);
+  }
+  function cleanCouncilReply(raw) {
+    let t = String(raw == null ? '' : raw).trim();
+    if (!t) return '';
+    t = t.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // Some small local models print a tool invocation as assistant text instead of using the tool-call channel.
+    // Remove only standalone JSON/tool wrappers; never scrub ordinary prose/code the user actually requested.
+    const wholeJson = /^\s*\{[\s\S]*\}\s*$/.test(t);
+    if (wholeJson) {
+      try {
+        const j = JSON.parse(t);
+        const toolish = !!(j && typeof j === 'object' && (j.parameters || j.arguments || j.tool || j.tool_call || j.function || j.name));
+        if (toolish) return '';
+      } catch (_) {}
+    }
+    t = t.replace(/(?:^|\n)\s*(?:tool(?:_call)?|function(?:_call)?)\s*[:=]\s*\{[^\n]*\}\s*(?=\n|$)/gi, '\n').trim();
+    return t;
+  }
+
   async function send(text, opts) {
     if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.sendText(text, { ...opts, attachmentAgent: activeWs.agentId });
     const retry = !!(opts && opts.retry);   // retry/recovery reuses a durable user turn — don't echo it again
@@ -8338,7 +8364,13 @@ const Chat = (() => {
     // CONCURRENT SESSIONS: no agent-global preflight refusal — a peer run on this agent is allowed to coexist
     // with this turn (the sidecar admits it; the workspace lease guards the one real collision). The peer stays
     // visible via the soft status row, and the per-STREAM gate below still holds.
-    const pending = pendingTaskQuestion && pendingTaskQuestion.streamId === ws.id ? pendingTaskQuestion : null;
+    let pending = pendingTaskQuestion && pendingTaskQuestion.streamId === ws.id ? pendingTaskQuestion : null;
+    // A clearly new question/directive supersedes an old clarification instead of inheriting its durable task.
+    // Explicit taskAction:'answer' (chips / deliberate answer flow) always wins.
+    if (pending && !(opts && opts.taskAction === 'answer') && looksLikeFreshDirective(text)) {
+      pendingTaskQuestion = null;
+      pending = null;
+    }
     const routedTaskReply = pending && typeof TaskIntent !== 'undefined' && TaskIntent.routeReply ? TaskIntent.routeReply(text) : null;
     const taskAction = (opts && opts.taskAction) || (routedTaskReply && routedTaskReply.action) || '';
     if (Channels.isBusy(ws.id)) return;   // one run per stream — but OTHER streams may be running concurrently
@@ -8636,7 +8668,7 @@ const Chat = (() => {
         // the run COMPLETED (cleanly, or via a stop / cut-short — either way the stream did not die):
         // settle the outcome so the board's DONE chip is anchored to a real finished run.
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, true);
-        let replyText = reply || acc;
+        let replyText = cleanCouncilReply(reply || acc);
         const taskQuestion = (isTask && typeof TaskIntent !== 'undefined' && TaskIntent.parse) ? TaskIntent.parse(replyText) : null;
         if (taskQuestion) {
           if (thisRunId) {

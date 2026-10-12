@@ -328,6 +328,7 @@ const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({ id: s.
 // still wins over a set SKYNET_X — preserving each downstream var's exact empty-vs-unset semantics.
 function ENV(suffix) { const k = 'STARNET_' + suffix; return (k in process.env) ? process.env[k] : process.env['SKYNET_' + suffix]; }
 
+const EF_STUDIO = ENV('EF_STUDIO') === '1';
 const PORT = Number(ENV('PORT') || process.env.PORT) || 8787;
 const API_TOKEN = String(ENV('API_TOKEN') || crypto.randomBytes(32).toString('hex'));
 // DEV fast-path (the `npm run dev:seed` launcher sets this): when on, the served index.html carries a small
@@ -413,7 +414,7 @@ function defaultWorkspaces() {
 const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : defaultWorkspaces();
 const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
 
-const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
+const RECOVERY_CANDIDATE_ROOTS = EF_STUDIO ? [] : workspaceCandidates({
   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
 }).concat([path.resolve(__dirname, 'workspaces'), path.resolve(__dirname, '..', 'workspaces')]);
 
@@ -421,7 +422,7 @@ const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
 // production may self-heal only one unambiguous valid legacy root; conflicts stay read-only for the picker.
 const startupWorkspaceRecovery = workspaceRecovery.applyPendingRecovery({
   fs, path, platform: process.platform, home: os.homedir(), workspaceRoot: WORKSPACES,
-  candidateRoots: DEV_MODE ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE, now: Date.now,
+  candidateRoots: (DEV_MODE || EF_STUDIO) ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE && !EF_STUDIO, now: Date.now,
   lockBootedAt: makeBootedAt(() => Date.now())   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
 });
 if (startupWorkspaceRecovery && startupWorkspaceRecovery.lockUnavailable) {
@@ -677,7 +678,7 @@ const CREDITS_LOW_USD = (() => { const n = Number(ENV('CREDITS_LOW_USD')); retur
 // flipped in the same breath, as `CREDITS.live` in website/site.js — the site's buy buttons and the app's link
 // button have to tell the same story on the same day. An explicit STARNET_CLOUD_URL always wins, so operators
 // and this repo's own live tests can point at a local service without touching the flag.
-const CLOUD_LIVE = true;                                    // ← launch switch: flip WITH website/site.js CREDITS.live
+const CLOUD_LIVE = !EF_STUDIO;                                    // ← launch switch: flip WITH website/site.js CREDITS.live
 const CLOUD_URL_DEFAULT = 'https://account.starnetos.com';   // the deployed StarNet Cloud (see starnet-cloud)
 const CLOUD_URL = String(ENV('CLOUD_URL') || (CLOUD_LIVE ? CLOUD_URL_DEFAULT : '')).trim();
 // The linked station's device token, injected by the DESKTOP from the OS keychain at spawn (keychain account
@@ -9745,10 +9746,13 @@ server.listen(PORT, '127.0.0.1', () => {
   const url = 'http://127.0.0.1:' + PORT;
   const bar = '═'.repeat(58);
   console.log('\n' + bar);
-  console.log('  ▲ STARNET — THE FULL APP IS RUNNING (UI + agent engine).');
+  console.log(EF_STUDIO ? '  EF AGENT STUDIO — local test workspace ready.' : '  ▲ STARNET — THE FULL APP IS RUNNING (UI + agent engine).');
   console.log('     Open in your browser:  ' + url);
-  console.log('     This one process IS the complete product — the UI you see and');
-  console.log('     the agents/web-search/tools behind it are all served from here.');
+  if (EF_STUDIO) console.log('     Independent EF interface on the StarNet runtime. No hosted member access.');
+  else {
+    console.log('     This one process IS the complete product — the UI you see and');
+    console.log('     the agents/web-search/tools behind it are all served from here.');
+  }
   if (DEV_MODE) console.log('     ⚡ DEV SEED MODE — onboarding auto-skipped; the page resumes the seeded agent.');
   console.log(bar + '\n');
   try { openaiCompat.announce(); } catch (_) {}   // one honest boot line: is the /v1 external-harness API live?
@@ -21311,11 +21315,20 @@ async function serveShared(req, res) {
 async function serveStatic(req, res) {
   try {
     const url = decodeURIComponent((req.url || '/').split('?')[0]);
-    const rel = (url === '/' ? 'index.html' : url.replace(/^\/+/, ''));
+    // Keep branded-only EF hosting separate from the original local station view.
+    const efStudio = EF_STUDIO;
+    const originalStation = efStudio && ENV('EF_ORIGINAL_UI') === '1';
+    if (efStudio && !apiauth.isAllowedHost(req.headers.host)) { res.writeHead(403); return res.end('forbidden host'); }
+    const efEntry = (url === '/' && !originalStation) || url === '/ef' || url === '/ef/';
+    if (efStudio && !originalStation && !efEntry && !['/ef/index.html', '/ef/studio.css', '/ef/core.js', '/ef/app.js'].includes(url)) {
+      res.writeHead(404); return res.end('not found');
+    }
+    const rel = (efStudio && efEntry ? 'ef/index.html' : url === '/' ? 'index.html' : url.replace(/^\/+/, ''));
     const abs = path.resolve(FRONTEND, rel);
     if (abs !== FRONTEND && abs.indexOf(FRONTEND + path.sep) !== 0) { res.writeHead(403); return res.end('forbidden'); }
     let data = await fsp.readFile(abs);
-    if (abs.toLowerCase() === path.resolve(FRONTEND, 'index.html').toLowerCase() ||
+    if ((efStudio && abs.toLowerCase() === path.resolve(FRONTEND, 'ef/index.html').toLowerCase()) ||
+        abs.toLowerCase() === path.resolve(FRONTEND, 'index.html').toLowerCase() ||
         (DEV_MODE && abs.toLowerCase() === path.resolve(FRONTEND, 'agent-station-demo.html').toLowerCase())) {
       let boot = '<script>window.__STARNET_API_TOKEN__=' + JSON.stringify(API_TOKEN) + ';';
       // DEV fast-path: hand the page a model + provider hint so a fresh origin auto-resumes the seeded

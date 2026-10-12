@@ -1779,7 +1779,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const isHero = (a && (a.id === 'agent' || a.role === 'orchestrator'));
     const crewCount = (access.config && typeof access.config.crewCount === 'function') ? access.config.crewCount() : present.length;
     const lastOne = crewCount <= 1;
-    const disabledReason = isHero ? 'the overseer can’t be deleted' : (lastOne ? 'the last agent can’t be deleted' : '');
+    const disabledReason = isHero ? 'the CEO can’t be deleted' : (lastOne ? 'the last agent can’t be deleted' : '');
     // one statement of the disabled reason (the visible .ag-del-why) — no duplicate tooltip echoing the same words.
     const delBtn = disabledReason
       ? '<button class="bb sm ag-del" id="ag-del-btn" disabled>✕ DELETE AGENT</button>' +
@@ -9878,9 +9878,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     store.settings.theme = t;
     const hs = PRESET_HS[t];   // keep the CUSTOM sliders in lockstep with a preset picked at commission
     if (hs) { store.settings.themeHue = hs[0]; store.settings.themeSat = hs[1]; }
-    applySettings();
-    try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
-    save();
+    applySettings(); save();
   }
   function getTheme() { return store.settings.theme; }
 
