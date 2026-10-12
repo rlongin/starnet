@@ -4,6 +4,7 @@ on:
     paths:
       - 'frontend/app/stationui.js'
       - 'test/theme-startup-persistence.test.js'
+      - 'test/browser-settings-reopen.cjs'
       - '.github/workflows/council-settings-persistence.yml'
 jobs:
   settings-persistence:
@@ -15,3 +16,6 @@ jobs:
           node-version: '24'
       - run: node --check frontend/app/stationui.js
       - run: node test/theme-startup-persistence.test.js
+      - run: npm install --no-save --ignore-scripts playwright@1.64.0
+      - run: npx playwright install --with-deps chromium
+      - run: node test/browser-settings-reopen.cjs
