@@ -187,7 +187,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   } catch (_) {}
   let lastSaveOk = true;
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(store)); lastSaveOk = true; return true; }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(store));
+      localStorage.setItem(THEME_KEY, store.settings.theme);
+      lastSaveOk = true; return true;
+    }
     catch (_) {
       const wasSaved = lastSaveOk; lastSaveOk = false;
       if (wasSaved) try { notify('Could not save local settings. Changes may be lost when you restart.', 'warn'); } catch (_) {}
