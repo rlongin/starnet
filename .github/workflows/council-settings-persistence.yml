@@ -1,0 +1,17 @@
+name: Council settings persistence
+on:
+  pull_request:
+    paths:
+      - 'frontend/app/stationui.js'
+      - 'test/theme-startup-persistence.test.js'
+      - '.github/workflows/council-settings-persistence.yml'
+jobs:
+  settings-persistence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check frontend/app/stationui.js
+      - run: node test/theme-startup-persistence.test.js
